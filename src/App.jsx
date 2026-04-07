@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "./supabase.js";
+import { createClient } from "@supabase/supabase-js";
+
+// ─── SUPABASE CLIENT (inlined — no separate import needed) ────────────────────
+const supabase = createClient(
+  "https://ftlivzbxotabkfbxmgnk.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0bGl2emJ4b3RhYmtmYnhtZ25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NjY5NDYsImV4cCI6MjA5MTA0Mjk0Nn0.8RhQh1RusJrmy13DMWqRPXWV9h9vsFFpiZc9W8XpnV4"
+);
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const FC_LOGO = "https://static.wixstatic.com/media/4877d6_4bad42a571ec47e982d9b2ec2b4c9a22~mv2.jpeg";
@@ -484,7 +490,8 @@ export default function FoundersCup() {
 
   // Load announcements + subscribe to new ones
   useEffect(()=>{
-    loadAnnouncements();
+    // Small delay for mobile browsers to fully initialize
+    setTimeout(()=>loadAnnouncements(), 300);
     const ch=supabase.channel("ann_realtime")
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"fc_announcements"},payload=>{
         setAnnouncements(a=>[payload.new,...a]);
@@ -498,15 +505,23 @@ export default function FoundersCup() {
     return()=>supabase.removeChannel(ch);
   },[]);
 
-  async function loadAnnouncements() {
-    try {
-      const {data}=await supabase.from("fc_events").select("id").eq("is_active",true).single();
-      const eid=data.id;
-      const {data:anns}=await supabase.from("fc_announcements").select("*").eq("event_id",eid).order("created_at",{ascending:false});
-      setAnnouncements(anns||[]);
-      const newCount=(anns||[]).filter(a=>new Date(a.created_at).getTime()>lastSeen).length;
-      setUnread(newCount);
-    } catch(e){console.warn("Could not load announcements",e);}
+  async function loadAnnouncements(retries=3) {
+    for(let i=0;i<retries;i++){
+      try {
+        const {data, error}=await supabase.from("fc_events").select("id").eq("is_active",true).single();
+        if(error) throw error;
+        const eid=data.id;
+        const {data:anns, error:ae}=await supabase.from("fc_announcements").select("*").eq("event_id",eid).order("created_at",{ascending:false});
+        if(ae) throw ae;
+        setAnnouncements(anns||[]);
+        const newCount=(anns||[]).filter(a=>new Date(a.created_at).getTime()>lastSeen).length;
+        setUnread(newCount);
+        return; // success
+      } catch(e){
+        console.warn("Announcement load attempt "+(i+1)+" failed:",e.message);
+        if(i<retries-1) await new Promise(r=>setTimeout(r,1500*(i+1)));
+      }
+    }
   }
 
   const handleTab=t=>{
@@ -838,11 +853,11 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}) 
           </div>
           <div className="svs">
             <div className="ss"><TL name={m.team_a_name} size={40}/><div className="ssn">{m.team_a_name||"TBD"}</div>
-              <input className="fi" type="number" min="0" defaultValue={m.score_a??""} onBlur={e=>updateScore(m.id,"score_a",e.target.value)} disabled={!!m.winner_id} style={{width:60,height:48,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:26,fontWeight:700,color:"var(--gold)",padding:"0 6px"}}/>
+              <input className="fi" type="number" min="0" defaultValue={m.score_a??""} onBlur={e=>updateScore(m.id,"score_a",e.target.value)} disabled={!!m.winner_id} style={{width:60,height:48,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:26,fontWeight:700,color:"var(--gold)",padding:"0 6px",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
             </div>
             <div className="ssp">VS</div>
             <div className="ss"><TL name={m.team_b_name} size={40}/><div className="ssn">{m.team_b_name||"TBD"}</div>
-              <input className="fi" type="number" min="0" defaultValue={m.score_b??""} onBlur={e=>updateScore(m.id,"score_b",e.target.value)} disabled={!!m.winner_id} style={{width:60,height:48,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:26,fontWeight:700,color:"var(--gold)",padding:"0 6px"}}/>
+              <input className="fi" type="number" min="0" defaultValue={m.score_b??""} onBlur={e=>updateScore(m.id,"score_b",e.target.value)} disabled={!!m.winner_id} style={{width:60,height:48,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:26,fontWeight:700,color:"var(--gold)",padding:"0 6px",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
             </div>
           </div>
           {!m.winner_id&&<button className="btn bp" onClick={()=>confirm(m)} disabled={saving}><Icon name="check" size={14}/> Confirm & Open Voting</button>}
