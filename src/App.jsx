@@ -490,6 +490,20 @@ export default function FoundersCup() {
   const [unread,setUnread]=useState(0);
 
   useEffect(()=>{injectPWA();},[]);
+
+  // Refresh data when user switches back to the tab (fixes desktop delay)
+  useEffect(()=>{
+    const onFocus = () => {
+      setTimeout(()=>loadAnnouncements(), 200);
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.visibilityState === "visible") loadAnnouncements();
+    });
+    return()=>{
+      window.removeEventListener("focus", onFocus);
+    };
+  },[]);
   useEffect(()=>{saveLocal(local);},[local]);
 
   // Load announcements + subscribe to new ones
