@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FC Supabase Test</title>
+  <style>
+    body{font-family:sans-serif;background:#0d1b3e;color:#fff;padding:20px;max-width:480px;margin:0 auto;}
+    h2{color:#f0b429;margin-bottom:16px;}
+    .box{background:#1a2a54;border:1px solid rgba(240,180,41,.3);border-radius:10px;padding:16px;margin-bottom:12px;}
+    .ok{color:#68d391;font-weight:bold;}
+    .err{color:#fc8181;font-weight:bold;}
+    .warn{color:#f0b429;font-weight:bold;}
+    pre{font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin-top:8px;color:#aaa;}
+    button{background:#f0b429;color:#0d1b3e;border:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-bottom:10px;}
+  </style>
+</head>
+<body>
+  <h2>🔍 Founders Cup — Connection Test</h2>
+  <div class="box" id="status">Tap the button below to test your connection...</div>
+  <button onclick="runTest()">Run Connection Test</button>
+  <button onclick="testDirect()" style="background:#1a2a54;color:#f0b429;border:1px solid rgba(240,180,41,.3)">Test Direct Fetch</button>
+  <div id="results"></div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+    const URL  = 'https://ftlivzbxotabkfbxmgnk.supabase.co';
+    const KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0bGl2emJ4b3RhYmtmYnhtZ25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NjY5NDYsImV4cCI6MjA5MTA0Mjk0Nn0.8RhQh1RusJrmy13DMWqRPXWV9h9vsFFpiZc9W8XpnV4';
+    const sb   = createClient(URL, KEY);
+
+    window.runTest = async function() {
+      const status = document.getElementById('status');
+      const results = document.getElementById('results');
+      status.innerHTML = '<span class="warn">⏳ Testing...</span>';
+      results.innerHTML = '';
+
+      const tests = [];
+
+      // Test 1: Basic connection
+      try {
+        const start = Date.now();
+        const { data, error } = await sb.from('fc_events').select('id,name,is_active').limit(5);
+        const ms = Date.now() - start;
+        if (error) {
+          tests.push({ name: 'fc_events query', ok: false, detail: error.message, ms });
+        } else {
+          tests.push({ name: 'fc_events query', ok: true, detail: JSON.stringify(data), ms });
+        }
+      } catch(e) {
+        tests.push({ name: 'fc_events query', ok: false, detail: e.message });
+      }
+
+      // Test 2: Active event
+      try {
+        const { data, error } = await sb.from('fc_events').select('id,name').eq('is_active', true).single();
+        if (error) {
+          tests.push({ name: 'Active event', ok: false, detail: error.message + ' — Does an active event exist?' });
+        } else {
+          tests.push({ name: 'Active event', ok: true, detail: `Found: ${data.name} (${data.id})` });
+
+          // Test 3: Announcements for this event
+          const eid = data.id;
+          const { data: anns, error: ae } = await sb.from('fc_announcements').select('*').eq('event_id', eid).limit(5);
+          if (ae) {
+            tests.push({ name: 'Announcements', ok: false, detail: ae.message });
+          } else {
+            tests.push({ name: 'Announcements', ok: true, detail: `Found ${anns.length} announcements` + (anns.length ? ': ' + JSON.stringify(anns.map(a=>a.body)) : '') });
+          }
+
+          // Test 4: Teams
+          const { data: teams, error: te } = await sb.from('fc_teams').select('name,competition').eq('event_id', eid).limit(10);
+          if (te) {
+            tests.push({ name: 'Teams', ok: false, detail: te.message });
+          } else {
+            tests.push({ name: 'Teams', ok: true, detail: `Found ${teams.length} teams` });
+          }
+
+          // Test 5: Publish flags
+          const { data: pf, error: pe } = await sb.from('fc_publish_flags').select('*').eq('event_id', eid);
+          if (pe) {
+            tests.push({ name: 'Publish flags', ok: false, detail: pe.message });
+          } else {
+            tests.push({ name: 'Publish flags', ok: true, detail: JSON.stringify(pf) });
+          }
+        }
+      } catch(e) {
+        tests.push({ name: 'Active event', ok: false, detail: e.message });
+      }
+
+      // Test 6: Network info
+      tests.push({
+        name: 'Browser info',
+        ok: true,
+        detail: navigator.userAgent
+      });
+
+      // Render results
+      let html = '';
+      tests.forEach(t => {
+        html += `<div class="box">
+          <div class="${t.ok ? 'ok' : 'err'}">${t.ok ? '✅' : '❌'} ${t.name}${t.ms ? ` (${t.ms}ms)` : ''}</div>
+          <pre>${t.detail}</pre>
+        </div>`;
+      });
+      results.innerHTML = html;
+
+      const allOk = tests.filter(t=>t.name!=='Browser info').every(t => t.ok);
+      status.innerHTML = allOk
+        ? '<span class="ok">✅ All tests passed — Supabase is connected!</span>'
+        : '<span class="err">❌ Some tests failed — see details below</span>';
+    };
+
+    window.testDirect = async function() {
+      const results = document.getElementById('results');
+      try {
+        const res = await fetch('https://ftlivzbxotabkfbxmgnk.supabase.co/rest/v1/fc_events?select=id,name&is_active=eq.true', {
+          headers: {
+            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0bGl2emJ4b3RhYmtmYnhtZ25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NjY5NDYsImV4cCI6MjA5MTA0Mjk0Nn0.8RhQh1RusJrmy13DMWqRPXWV9h9vsFFpiZc9W8XpnV4',
+            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0bGl2emJ4b3RhYmtmYnhtZ25rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NjY5NDYsImV4cCI6MjA5MTA0Mjk0Nn0.8RhQh1RusJrmy13DMWqRPXWV9h9vsFFpiZc9W8XpnV4'
+          }
+        });
+        const data = await res.json();
+        results.innerHTML = `<div class="box"><div class="ok">✅ Direct fetch worked (${res.status})</div><pre>${JSON.stringify(data, null, 2)}</pre></div>`;
+      } catch(e) {
+        results.innerHTML = `<div class="box"><div class="err">❌ Direct fetch failed</div><pre>${e.message}</pre></div>`;
+      }
+    };
+  </script>
+</body>
+</html>
