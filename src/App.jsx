@@ -31,6 +31,10 @@ const uid            = () => Math.random().toString(36).slice(2,9);
 
 // ─── LOCAL-ONLY STATE (judges, team admins, votes — device-specific) ──────────
 function loadLocal() {
+  // Clear old localStorage keys from v5/v6 that might cause conflicts
+  ["fc_app_state_v5","fc_v6_state","fc_v7_state"].forEach(k=>{
+    try { localStorage.removeItem(k); } catch(e){}
+  });
   try { return JSON.parse(localStorage.getItem(LOCAL_KEY)) || {}; } catch(e) { return {}; }
 }
 function saveLocal(data) {
@@ -686,10 +690,10 @@ function SportPage({sport,role,user,local,askPin,showToast}) {
 
   useEffect(()=>{
     load();
-    const ch=supabase.channel(`sport_${sport}`)
-      .on("postgres_changes",{event:"*",schema:"public",table:"fc_matches",filter:`competition=eq.${sport}`},()=>load())
+    const ch=supabase.channel(`sport_${sport}_v2`)
+      .on("postgres_changes",{event:"*",schema:"public",table:"fc_matches"},()=>load())
       .on("postgres_changes",{event:"*",schema:"public",table:"fc_players"},()=>load())
-      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"fc_publish_flags",filter:`competition=eq.${sport}`},()=>load())
+      .on("postgres_changes",{event:"*",schema:"public",table:"fc_publish_flags"},()=>load())
       .subscribe();
     return()=>supabase.removeChannel(ch);
   },[sport,load]);
@@ -941,10 +945,10 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
 
   useEffect(()=>{
     load();
-    const ch=supabase.channel("choir_rt")
+    const ch=supabase.channel("choir_rt_v2")
       .on("postgres_changes",{event:"*",schema:"public",table:"fc_choir_scores"},()=>load())
       .on("postgres_changes",{event:"*",schema:"public",table:"fc_choir_members"},()=>load())
-      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"fc_publish_flags",filter:"competition=eq.choir"},()=>load())
+      .on("postgres_changes",{event:"*",schema:"public",table:"fc_publish_flags"},()=>load())
       .subscribe();
     return()=>supabase.removeChannel(ch);
   },[load]);
@@ -1269,8 +1273,39 @@ function UserMgmt({local,setLocal,askPin,showToast}) {
 
 function PublishMgmt({showToast}) {
   const [flags,setFlags]=useState({soccer:false,netball:false,choir:false});
-  useEffect(()=>{async function load(){try{const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).single();const{data:pf}=await supabase.from("fc_publish_flags").select("*").eq("event_id",ev.id);const f={};(pf||[]).forEach(p=>{f[p.competition]=p.published;});setFlags(f);}catch(e){}}load();},[]);
-  const toggle=async comp=>{const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).single();await supabase.from("fc_publish_flags").update({published:!flags[comp]}).eq("event_id",ev.id).eq("competition",comp);setFlags(f=>({...f,[comp]:!f[comp]}));showToast(!flags[comp]?"Published!":"Hidden.");};
+  const [eid,setEid]=useState(null);
+
+  const loadFlags = async () => {
+    try {
+      const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).single();
+      setEid(ev.id);
+      const{data:pf}=await supabase.from("fc_publish_flags").select("*").eq("event_id",ev.id);
+      const f={};(pf||[]).forEach(p=>{f[p.competition]=p.published;});
+      setFlags(f);
+      return ev.id;
+    } catch(e){ console.warn("PublishMgmt load error",e); }
+  };
+
+  useEffect(()=>{
+    loadFlags();
+    // Realtime subscription — update all devices when any publish flag changes
+    const ch = supabase.channel("publish_flags_rt")
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"fc_publish_flags"},
+        payload => {
+          setFlags(f=>({...f,[payload.new.competition]:payload.new.published}));
+        }
+      ).subscribe();
+    return()=>supabase.removeChannel(ch);
+  },[]);
+
+  const toggle=async comp=>{
+    try {
+      const evId = eid || (await loadFlags());
+      await supabase.from("fc_publish_flags").update({published:!flags[comp],updated_at:new Date().toISOString()}).eq("event_id",evId).eq("competition",comp);
+      // Don't setFlags locally — let the realtime subscription update all devices
+      showToast(!flags[comp]?"Published — all devices updated!":"Hidden on all devices.");
+    } catch(e){ showToast("Error: "+e.message); }
+  };
   return (
     <div className="pw">
       <div className="sechd fu"><span className="secht">Publish Controls</span></div>
