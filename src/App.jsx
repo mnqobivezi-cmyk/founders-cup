@@ -750,7 +750,7 @@ function BracketView({matches,isOrg,published}) {
                   <div key={i} className={`mt ${m.winner_id===s.id?"win":m.winner_id?"los":""}`}>
                     {s.name&&s.name!=="TBD"&&<TL name={s.name} size={22}/>}
                     <span className="mtn">{s.name||"TBD"}</span>
-                    <span className={`msc ${s.sc===null?"dim":""}`}>{s.sc???"—"}</span>
+                    <span className={`msc ${s.sc===null?"dim":""}`}>{s.sc??"—"}</span>
                   </div>
                 ))}
                 <div className="mfoot">{m.winner_id?`${m.winner_name} advances`:"Upcoming"}</div>
