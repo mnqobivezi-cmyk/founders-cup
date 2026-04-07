@@ -441,7 +441,7 @@ function AdminModal({local,onLogin,onClose}) {
             {users.length>0&&<div className="fg"><label className="fl">Your Profile</label><select className="fi" value={uid2} onChange={e=>setUid2(e.target.value)}><option value="">— Select —</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}{u.teamId?" — "+u.teamId:""}</option>)}</select></div>}
             {users.length===0&&role!=="organizer"&&<div style={{fontSize:13,color:"var(--muted)",padding:"12px",background:"rgba(255,255,255,.03)",borderRadius:8,border:"1px solid var(--border)",marginBottom:14,lineHeight:1.5}}>No {role==="judge"?"judges":"team admins"} set up yet.</div>}
             {(role==="organizer"||(uid2&&role!=="organizer"))&&(
-              <><if err><div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:10}}>{err}</div></if>
+              <>{err&&<div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:10}}>{err}</div>}
               {err&&<div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:10}}>{err}</div>}
               <div className="fg"><label className="fl">PIN</label><input className="fi" type="password" placeholder="····" style={{fontSize:24,letterSpacing:10,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif"}} value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&attempt()}/></div>
               <button className="btn bp" onClick={attempt}><Icon name="check" size={15}/> Enter</button></>
@@ -698,7 +698,12 @@ function SportPage({sport,role,user,local,askPin,showToast}) {
     return()=>supabase.removeChannel(ch);
   },[sport,load]);
 
-  const champ=published&&matches.length?()=>{const maxR=Math.max(...matches.map(m=>m.round));const f=matches.find(m=>m.round===maxR&&m.winner_id);return f?f.winner_name:null;}():null;
+  let champ = null;
+  if (published && matches.length) {
+    const maxR = Math.max(...matches.map(m=>m.round));
+    const f = matches.find(m=>m.round===maxR && m.winner_id);
+    champ = f ? f.winner_name : null;
+  }
 
   const tabs=[
     {id:"bracket",lbl:"Bracket"},
