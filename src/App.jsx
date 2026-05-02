@@ -697,8 +697,11 @@ function SportPage({sport,role,user,local,askPin,showToast}) {
       const[teamsRes, matchesRes, pfRes]=await Promise.all([
         supabase.from("fc_teams").select("*,fc_players(*)").eq("event_id",eid).eq("competition",sport),
         supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition",sport).order("round",{ascending:true}),
-        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition",sport),
+        supabase.from("fc_publish_flags").select("*").eq("event_id",eid).eq("competition",sport),
       ]);
+      console.log("SPORT DEBUG",sport,"pfRes:",JSON.stringify(pfRes));
+      console.log("SPORT DEBUG matches count:",matchesRes.data?.length);
+      console.log("SPORT DEBUG teams count:",teamsRes.data?.length);
       const pfRow = pfRes.data?.[0];
       setTeams(teamsRes.data||[]);
       setMatches(matchesRes.data||[]);
