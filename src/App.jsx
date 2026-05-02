@@ -694,12 +694,15 @@ function SportPage({sport,role,user,local,askPin,showToast}) {
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
       if(!ev||!ev.id) throw new Error("No active event");
       const eid=ev.id;
-      const[{data:t},{data:m},{data:pf}]=await Promise.all([
+      const[teamsRes, matchesRes, pfRes]=await Promise.all([
         supabase.from("fc_teams").select("*,fc_players(*)").eq("event_id",eid).eq("competition",sport),
         supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition",sport).order("round",{ascending:true}),
-        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition",sport).limit(1).then(r=>({data:r.data?.[0],error:r.error})),
+        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition",sport),
       ]);
-      setTeams(t||[]);setMatches(m||[]);setPublished(pf?.published||false);
+      const pfRow = pfRes.data?.[0];
+      setTeams(teamsRes.data||[]);
+      setMatches(matchesRes.data||[]);
+      setPublished(pfRow?.published||false);
     }catch(e){console.warn("Sport load error",e);}
     setLoading(false);
   },[sport]);
@@ -956,12 +959,15 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
       const{data:ev}=await supabase.from("fc_events").select("id,choir_categories").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
       const eid=ev.id;
       if(ev.choir_categories)setCats(ev.choir_categories);
-      const[{data:g},{data:s},{data:pf}]=await Promise.all([
+      const[groupsRes, scoresRes, pfRes]=await Promise.all([
         supabase.from("fc_choir_groups").select("*,fc_choir_members(*)").eq("event_id",eid).order("performance_order",{ascending:true,nullsLast:true}),
         supabase.from("fc_choir_scores").select("*").eq("event_id",eid),
-        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition","choir").limit(1).then(r=>({data:r.data?.[0],error:r.error})),
+        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition","choir"),
       ]);
-      setGroups(g||[]);setScores(s||[]);setPublished(pf?.published||false);
+      const pfRow = pfRes.data?.[0];
+      setGroups(groupsRes.data||[]);
+      setScores(scoresRes.data||[]);
+      setPublished(pfRow?.published||false);
     }catch(e){console.warn("Choir load error",e);}
   },[]);
 
