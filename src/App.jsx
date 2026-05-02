@@ -692,13 +692,14 @@ function SportPage({sport,role,user,local,askPin,showToast}) {
   const load=useCallback(async()=>{
     try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
+      if(!ev||!ev.id) throw new Error("No active event");
       const eid=ev.id;
       const[{data:t},{data:m},{data:pf}]=await Promise.all([
         supabase.from("fc_teams").select("*,fc_players(*)").eq("event_id",eid).eq("competition",sport),
         supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition",sport).order("round",{ascending:true}),
-        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition",sport).single(),
+        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition",sport).limit(1).then(r=>({data:r.data?.[0],error:r.error})),
       ]);
-      setTeams(t||[]);setMatches(m||[]);setPublished(pf?.data?.published||false);
+      setTeams(t||[]);setMatches(m||[]);setPublished(pf?.published||false);
     }catch(e){console.warn("Sport load error",e);}
     setLoading(false);
   },[sport]);
@@ -816,6 +817,7 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}) 
     setSaving(true);
     try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
+      if(!ev||!ev.id) throw new Error("No active event");
       const eid=ev.id;
       // Delete old matches first
       await supabase.from("fc_matches").delete().eq("event_id",eid).eq("competition",sport);
@@ -957,9 +959,9 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
       const[{data:g},{data:s},{data:pf}]=await Promise.all([
         supabase.from("fc_choir_groups").select("*,fc_choir_members(*)").eq("event_id",eid).order("performance_order",{ascending:true,nullsLast:true}),
         supabase.from("fc_choir_scores").select("*").eq("event_id",eid),
-        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition","choir").single(),
+        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition","choir").limit(1).then(r=>({data:r.data?.[0],error:r.error})),
       ]);
-      setGroups(g||[]);setScores(s||[]);setPublished(pf?.data?.published||false);
+      setGroups(g||[]);setScores(s||[]);setPublished(pf?.published||false);
     }catch(e){console.warn("Choir load error",e);}
   },[]);
 
@@ -1298,6 +1300,7 @@ function PublishMgmt({showToast}) {
   const loadFlags = async () => {
     try {
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
+      if(!ev||!ev.id) throw new Error("No active event");
       setEid(ev.id);
       const{data:pf}=await supabase.from("fc_publish_flags").select("*").eq("event_id",ev.id);
       const f={};(pf||[]).forEach(p=>{f[p.competition]=p.published;});
@@ -1321,6 +1324,7 @@ function PublishMgmt({showToast}) {
   const toggle=async comp=>{
     try {
       const evId = eid || (await loadFlags());
+      if(!evId) throw new Error("No active event ID");
       await supabase.from("fc_publish_flags").update({published:!flags[comp],updated_at:new Date().toISOString()}).eq("event_id",evId).eq("competition",comp);
       // Don't setFlags locally — let the realtime subscription update all devices
       showToast(!flags[comp]?"Published — all devices updated!":"Hidden on all devices.");
