@@ -49,8 +49,19 @@ function injectPWA() {
   document.head.appendChild(l);
   [["apple-touch-icon",null,FC_LOGO],[null,"apple-mobile-web-app-capable","yes"],[null,"apple-mobile-web-app-title","Founders Cup"],[null,"theme-color","#0d1b3e"]].forEach(([rel,name,val])=>{const e=rel?document.createElement("link"):document.createElement("meta");rel?Object.assign(e,{rel,href:val}):Object.assign(e,{name,content:val});document.head.appendChild(e);});
 }
-async function requestPush(){if(!("Notification"in window))return false;return(await Notification.requestPermission())==="granted";}
-function pushNotify(title,body){if(!("Notification"in window)||Notification.permission!=="granted")return;try{new Notification(title,{body,icon:FC_LOGO,tag:"fc"});}catch(e){}}
+async function requestPush(){
+  if(!("Notification"in window))return{ok:false,reason:"not_supported"};
+  if(Notification.permission==="granted")return{ok:true};
+  if(Notification.permission==="denied")return{ok:false,reason:"denied"};
+  try{
+    const p=await Notification.requestPermission();
+    return{ok:p==="granted",reason:p};
+  }catch(e){return{ok:false,reason:"error"};}
+}
+function pushNotify(title,body){
+  if(!("Notification"in window)||Notification.permission!=="granted")return;
+  try{new Notification(title,{body,icon:FC_LOGO,tag:"fc-"+Date.now()});}catch(e){}
+}
 
 // ─── ICONS ────────────────────────────────────────────────────────────────────
 const Icon = ({name,size=22,stroke="currentColor",sw=1.5})=>{
@@ -160,10 +171,10 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 
 /* NAV */
 .nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(13,27,62,.97);border-top:1px solid var(--gold-border);display:flex;padding-bottom:var(--safe-b);z-index:100;height:var(--nav-h);backdrop-filter:blur(20px);}
-.ni{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:6px 2px;color:var(--muted2);transition:color .2s;border:none;background:none;position:relative;}
+.ni{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:6px 2px;color:rgba(255,255,255,.6);transition:color .2s;border:none;background:none;position:relative;}
 .ni.on{color:var(--gold);}
 .ni.on::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:28px;height:2px;background:var(--gold);border-radius:0 0 3px 3px;}
-.nl{font-size:9px;letter-spacing:.8px;text-transform:uppercase;font-weight:700;font-family:'Barlow Condensed',sans-serif;}
+.nl{font-size:9px;letter-spacing:.8px;text-transform:uppercase;font-weight:700;font-family:'Barlow Condensed',sans-serif;color:inherit;}
 .nbadge{position:absolute;top:5px;right:calc(50% - 17px);min-width:17px;height:17px;background:#e53e3e;border-radius:9px;font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:800;color:#fff;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid var(--navy);animation:badgepop .35s cubic-bezier(.34,1.56,.64,1);}
 @keyframes badgepop{from{transform:scale(0);}to{transform:scale(1);}}
 
@@ -579,7 +590,7 @@ export default function FoundersCup() {
           </div>
         </header>
         <div className="app-body">
-          {tab==="home"   &&<HomePage announcements={announcements}/>}
+          {tab==="home"   &&<HomePage announcements={announcements} onChampClick={sport=>{if(sport==="soccer")setTab("soccer");else if(sport==="netball")setTab("netball");else if(sport==="choir")setTab("choir");}}/>}
           {tab==="soccer" &&<SportPage sport="soccer"  role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
           {tab==="netball"&&<SportPage sport="netball" role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
           {tab==="choir"  &&<ChoirPage role={role} user={user} local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
@@ -602,7 +613,7 @@ export default function FoundersCup() {
 }
 
 // ─── HOME PAGE ────────────────────────────────────────────────────────────────
-function HomePage({announcements}) {
+function HomePage({announcements, onChampClick}) {
   const [champions,setChampions]=useState([]);
   const [teams,setTeams]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -655,10 +666,11 @@ function HomePage({announcements}) {
         {champions.length>0&&(
           <><div className="gline fu fu3"><span className="gline-t">Champions</span></div>
           {champions.map(c=>(
-            <div key={c.sport} className="champ fu">
+            <div key={c.sport} className="champ fu" onClick={()=>onChampClick&&onChampClick(c.sport)} style={{cursor:"pointer"}}>
               <img src={getLogo(c.name)} className="clogo" alt={c.name}/>
               <div className="cl">{c.sport} Champion</div>
               <div className="cn">{c.name}</div>
+              <div style={{fontSize:10,color:"rgba(240,180,41,.6)",letterSpacing:2,textTransform:"uppercase",fontFamily:"'Barlow Condensed',sans-serif",marginTop:8}}>Tap to view full results →</div>
             </div>
           ))}</>
         )}
@@ -955,22 +967,34 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
   const [scores,setScores]=useState([]);
   const [published,setPublished]=useState(false);
   const [cats,setCats]=useState(local.choirCats||DEFAULT_CATS);
+  const [songs,setSongs]=useState(["Prescribed Song 1","Prescribed Song 2","Choice Song"]);
+  const [currentGroupId,setCurrentGroupId]=useState(null);
+  const [spectatorMode,setSpectatorMode]=useState("hold");
+  const [publishTeams,setPublishTeams]=useState(false);
+  const [publishSpectators,setPublishSpectators]=useState(false);
+  const [eventId,setEventId]=useState(null);
   const isJudge=role==="judge",isOrg=role==="organizer",isTA=role==="teamadmin";
 
   const load=useCallback(async()=>{
     try{
-      const{data:ev}=await supabase.from("fc_events").select("id,choir_categories").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
+      const{data:evArr2}=await supabase.from("fc_events").select("id,choir_categories,choir_current_group_id,choir_spectator_mode,choir_songs,choir_publish_teams,choir_publish_spectators").eq("is_active",true).limit(1);
+      const ev=evArr2?.[0];
+      if(!ev||!ev.id) throw new Error("No active event");
       const eid=ev.id;
       if(ev.choir_categories)setCats(ev.choir_categories);
-      const[groupsRes, scoresRes, pfRes]=await Promise.all([
+      if(ev.choir_songs)setSongs(ev.choir_songs);
+      setCurrentGroupId(ev.choir_current_group_id||null);
+      setSpectatorMode(ev.choir_spectator_mode||"hold");
+      setPublishTeams(ev.choir_publish_teams||false);
+      setPublishSpectators(ev.choir_publish_spectators||false);
+      setEventId(eid);
+      const[groupsRes,scoresRes]=await Promise.all([
         supabase.from("fc_choir_groups").select("*,fc_choir_members(*)").eq("event_id",eid).order("performance_order",{ascending:true,nullsLast:true}),
         supabase.from("fc_choir_scores").select("*").eq("event_id",eid),
-        supabase.from("fc_publish_flags").select("published").eq("event_id",eid).eq("competition","choir"),
       ]);
-      const pfRow = pfRes.data?.[0];
       setGroups(groupsRes.data||[]);
       setScores(scoresRes.data||[]);
-      setPublished(pfRow?.published||false);
+      setPublished(ev.choir_publish_spectators||false);
     }catch(e){console.warn("Choir load error",e);}
   },[]);
 
@@ -988,7 +1012,7 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
     ...(isOrg||role==="spectator"||isTA?[{id:"leaderboard",lbl:"Leaderboard"}]:[]),
     ...(isOrg||isTA?[{id:"register",lbl:"Registration"}]:[]),
     ...(isJudge?[{id:"score",lbl:"Score"}]:[]),
-    ...(isOrg?[{id:"manage",lbl:"Manage"},{id:"allscores",lbl:"All Scores"}]:[]),
+    ...(isOrg?[{id:"manage",lbl:"Manage"},{id:"settings",lbl:"Settings"},{id:"allscores",lbl:"All Scores"}]:[]),
   ];
 
   return (
@@ -1000,11 +1024,12 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
       </div>
       <div className="tabs">{tabs.map(t=><button key={t.id} className={`tab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>{t.lbl}</button>)}</div>
       <div className="inner">
-        {tab==="leaderboard"&&<ChoirLeaderboard groups={groups} scores={scores} cats={cats} published={published}/>}
+        {tab==="leaderboard"&&<ChoirLeaderboard groups={groups} scores={scores} cats={cats} songs={songs} published={published} publishTeams={publishTeams} publishSpectators={publishSpectators} role={role} spectatorMode={spectatorMode} currentGroupId={currentGroupId}/>}
         {tab==="register"&&(isOrg||isTA)&&<ChoirRegister groups={groups} role={role} user={user} askPin={askPin} showToast={showToast} onRefresh={load}/>}
-        {tab==="score"&&isJudge&&<ChoirScore groups={groups} scores={scores} cats={cats} user={user} showToast={showToast} onRefresh={load}/>}
-        {tab==="manage"&&isOrg&&<ChoirManage groups={groups} scores={scores} cats={cats} published={published} askPin={askPin} showToast={showToast} onRefresh={load}/>}
-        {tab==="allscores"&&isOrg&&<ChoirAllScores groups={groups} scores={scores} cats={cats}/>}
+        {tab==="score"&&isJudge&&<ChoirScore groups={groups} scores={scores} cats={cats} songs={songs} user={user} currentGroupId={currentGroupId} showToast={showToast} onRefresh={load}/>}
+        {tab==="manage"&&isOrg&&<ChoirManage groups={groups} scores={scores} cats={cats} songs={songs} published={published} publishTeams={publishTeams} publishSpectators={publishSpectators} spectatorMode={spectatorMode} currentGroupId={currentGroupId} eventId={eventId} askPin={askPin} showToast={showToast} onRefresh={load}/>}
+        {tab==="settings"&&isOrg&&<ChoirSettings cats={cats} songs={songs} spectatorMode={spectatorMode} eventId={eventId} showToast={showToast} onRefresh={load}/>}
+        {tab==="allscores"&&isOrg&&<ChoirAllScores groups={groups} scores={scores} cats={cats} songs={songs}/>}
       </div>
     </div>
   );
@@ -1019,59 +1044,117 @@ function rankGroups(groups,scores,cats) {
   }).sort((a,b)=>b.overall-a.overall);
 }
 
-function ChoirLeaderboard({groups,scores,cats,published}) {
-  if(!published)return<div className="empty fu"><div className="eti"><Icon name="mic" size={38} sw={1}/></div><div className="ett">The choir leaderboard will be published once scoring is complete.</div></div>;
+function ChoirLeaderboard({groups,scores,cats,songs,published,publishTeams,publishSpectators,role,spectatorMode,currentGroupId}) {
+  const [expanded,setExpanded]=useState(null);
+  const isOrg=role==="organizer";
+  const isTeamAdmin=role==="teamadmin";
+
+  // Spectators only see leaderboard when published to spectators
+  if(role==="spectator"&&!publishSpectators){
+    const currentGroup=currentGroupId?groups.find(g=>g.id===currentGroupId):null;
+    return(
+      <div className="pw">
+        {currentGroup?(
+          <div className="ccard card-gold">
+            <div style={{fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,marginBottom:8}}>🎵 Now Performing</div>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <TL name={currentGroup.name} size={52}/>
+              <div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:800}}>{currentGroup.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{currentGroup.branch}</div></div>
+            </div>
+          </div>
+        ):(
+          <div className="empty fu"><div className="eti"><Icon name="mic" size={38} sw={1}/></div><div className="ett">Choir competition in progress. Results will be announced by the MC.</div></div>
+        )}
+      </div>
+    );
+  }
+
   const ranked=rankGroups(groups,scores,cats);
+
   return (
-    <div>
+    <div className="pw">
+      {currentGroupId&&(isOrg||isTeamAdmin)&&(()=>{const cg=groups.find(g=>g.id===currentGroupId);return cg?(<div className="ccard card-gold" style={{marginBottom:16}}><div style={{fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,marginBottom:6}}>🎵 Now Performing</div><div style={{display:"flex",alignItems:"center",gap:10}}><TL name={cg.name} size={36}/><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:18,fontWeight:700}}>{cg.name}</div></div></div>):null;})()}
       {ranked.map((r,i)=>(
-        <div key={r.group.id} className={`ccard fu ${i===0?"card-gold":""}`} style={{animationDelay:`${i*.07}s`}}>
+        <div key={r.group.id} className={`ccard fu ${i===0?"card-gold":""}`} style={{animationDelay:`${i*.07}s`,cursor:"pointer"}} onClick={()=>setExpanded(expanded===r.group.id?null:r.group.id)}>
           <div style={{position:"absolute",right:14,top:10,fontFamily:"'Barlow Condensed',sans-serif",fontSize:52,fontWeight:800,color:"rgba(255,255,255,.05)",lineHeight:1}}>#{i+1}</div>
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
             <TL name={r.group.name} size={52} style={{border:`2px solid ${i===0?"var(--gold)":"rgba(240,180,41,.2)"}`}}/>
-            <div style={{flex:1}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:700}}>{r.group.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{r.group.branch} · {r.judgeCount} judge{r.judgeCount!==1?"s":""}</div></div>
-            <div style={{textAlign:"right"}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:40,fontWeight:800,color:i===0?"var(--gold)":"#fff",lineHeight:1}}>{r.overall>0?r.overall.toFixed(1):"—"}</div><div style={{fontSize:10,color:"var(--muted)"}}>avg</div></div>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:700}}>{r.group.name}</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{r.group.branch} · {r.judgeCount} judge{r.judgeCount!==1?"s":""}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:40,fontWeight:800,color:i===0?"var(--gold)":"#fff",lineHeight:1}}>{r.overall>0?r.overall.toFixed(1):"—"}</div>
+              <div style={{fontSize:10,color:"var(--muted)"}}>avg</div>
+            </div>
           </div>
           {cats.map((cat,ci)=>(
             <div key={cat} className="sbr"><div className="sbl">{cat}</div><div className="sbt"><div className="sbf" style={{width:`${((r.catAvgs[ci]||0)/10)*100}%`}}/></div><div className="sbv">{r.catAvgs[ci]>0?r.catAvgs[ci].toFixed(1):"—"}</div></div>
           ))}
+          {/* Per-song breakdown when expanded */}
+          {expanded===r.group.id&&songs.length>0&&(
+            <div style={{marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)"}}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:10}}>Song Breakdown</div>
+              {songs.map((song,si)=>{
+                const songScores=scores.filter(s=>s.group_id===r.group.id&&s.song_index===si);
+                const songAvg=songScores.length?songScores.reduce((a,b)=>a+b.score,0)/songScores.length:0;
+                return(
+                  <div key={si} style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:13,fontWeight:600}}>{song}</span>
+                      <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:"var(--gold)"}}>{songAvg>0?songAvg.toFixed(1):"—"}</span>
+                    </div>
+                    {cats.map(cat=>{const cs=songScores.filter(s=>s.category===cat);const ca=cs.length?cs.reduce((a,b)=>a+b.score,0)/cs.length:0;return<div key={cat} className="sbr" style={{marginBottom:3}}><div className="sbl" style={{fontSize:10}}>{cat}</div><div className="sbt"><div className="sbf" style={{width:`${(ca/10)*100}%`,background:"rgba(240,180,41,.5)"}}/></div><div className="sbv" style={{fontSize:11}}>{ca>0?ca.toFixed(1):"—"}</div></div>;})}
+                  </div>
+                );
+              })}
+              <div style={{fontSize:10,color:"var(--muted)",textAlign:"center",marginTop:8}}>Tap to collapse</div>
+            </div>
+          )}
+          {expanded!==r.group.id&&<div style={{fontSize:10,color:"rgba(240,180,41,.4)",textAlign:"center",marginTop:8,fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1}}>Tap for song breakdown</div>}
         </div>
       ))}
     </div>
   );
 }
-
-function ChoirScore({groups,scores,cats,user,showToast,onRefresh}) {
+function ChoirScore({groups,scores,cats,songs,user,currentGroupId,showToast,onRefresh}) {
   const [local2,setLocal2]=useState({});
-  const get=(gid,cat)=>local2[`${gid}_${cat}`]||null;
-  const set=(gid,cat,v)=>setLocal2(s=>({...s,[`${gid}_${cat}`]:v}));
-  const submit=async gid=>{
-    if(!cats.every(c=>get(gid,c))){showToast("Score all categories.");return;}
+  const [songIdx,setSongIdx]=useState(0);
+  const get=(gid,cat,si)=>local2[`${gid}_${cat}_${si}`]||null;
+  const setScore=(gid,cat,si,v)=>setLocal2(s=>({...s,[`${gid}_${cat}_${si}`]:v}));
+  const currentGroup=currentGroupId?groups.find(g=>g.id===currentGroupId):groups[0];
+  if(!currentGroup)return<div className="empty"><div className="eti"><Icon name="mic" size={38} sw={1}/></div><div className="ett">Waiting for organizer to start the choir competition.</div></div>;
+  const submit=async(gid,si)=>{
+    if(!cats.every(c=>get(gid,c,si))){showToast("Score all categories for this song.");return;}
     try{
-      const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
-      await Promise.all(cats.map(cat=>supabase.from("fc_choir_scores").upsert({event_id:ev.id,group_id:gid,judge_name:user?.name||"Judge",category:cat,score:local2[`${gid}_${cat}`]},{onConflict:"group_id,judge_name,category"})));
-      showToast("Scores submitted!");onRefresh();
+      const{data:evArr}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
+      const ev=evArr?.[0];if(!ev)throw new Error("No active event");
+      await Promise.all(cats.map(cat=>supabase.from("fc_choir_scores").upsert({event_id:ev.id,group_id:gid,judge_name:user?.name||"Judge",category:cat,score:local2[`${gid}_${cat}_${si}`],song_index:si},{onConflict:"group_id,judge_name,category,song_index"})));
+      showToast(`${songs[si]||"Song "+(si+1)} scores submitted!`);
+      if(si<songs.length-1)setSongIdx(si+1);
+      onRefresh();
     }catch(e){showToast("Error: "+e.message);}
   };
   return (
     <div className="pw">
-      <div className="jhdr"><Icon name="mic" size={18} stroke="var(--gold)"/><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700}}>{user?.name||"Judge"}</div><div style={{fontSize:11,color:"var(--muted)"}}>Choir Judge · Score 1–10 per category</div></div></div>
-      {groups.map((g,gi)=>{
-        const done=cats.every(cat=>scores.find(s=>s.group_id===g.id&&s.judge_name===(user?.name||"Judge")&&s.category===cat));
-        return (
-          <div key={g.id} className="ccard fu" style={{animationDelay:`${gi*.06}s`}}>
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}><TL name={g.name} size={46}/><div style={{flex:1}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:19,fontWeight:700}}>{g.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{g.branch}</div></div>{done&&<span className="tag tgn"><Icon name="check" size={10}/> Submitted</span>}</div>
-            {cats.map(cat=>(
-              <div key={cat} className="drow"><div className="dlbl">{cat}</div><div className="dots">{[1,2,3,4,5,6,7,8,9,10].map(n=><button key={n} className={`dot ${get(g.id,cat)===n?"on":""}`} onClick={()=>set(g.id,cat,n)}>{n}</button>)}</div></div>
-            ))}
-            <div style={{marginTop:13}}><button className="btn bp" onClick={()=>submit(g.id)}><Icon name="check" size={14}/> Submit Scores</button></div>
-          </div>
-        );
-      })}
+      <div className="jhdr"><Icon name="mic" size={18} stroke="var(--gold)"/><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700}}>{user?.name||"Judge"}</div><div style={{fontSize:11,color:"var(--muted)"}}>Score 1–10 per category per song</div></div></div>
+      <div className="ccard card-gold" style={{marginBottom:16}}>
+        <div style={{fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,marginBottom:8}}>Currently Performing</div>
+        <div style={{display:"flex",alignItems:"center",gap:12}}><TL name={currentGroup.name} size={52}/><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:800}}>{currentGroup.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{currentGroup.branch} · Performance #{currentGroup.performance_order}</div></div></div>
+      </div>
+      <div className="tabs" style={{marginBottom:16}}>
+        {songs.map((s,i)=>{const done=cats.every(cat=>scores.find(sc=>sc.group_id===currentGroup.id&&sc.judge_name===(user?.name||"Judge")&&sc.category===cat&&sc.song_index===i));return<button key={i} className={`tab ${songIdx===i?"on":""}`} onClick={()=>setSongIdx(i)}>{s}{done?" ✓":""}</button>;})}
+      </div>
+      <div className="ccard">
+        <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:"var(--gold)",marginBottom:14}}>{songs[songIdx]||"Song "+(songIdx+1)}</div>
+        {cats.map(cat=>{const already=scores.find(sc=>sc.group_id===currentGroup.id&&sc.judge_name===(user?.name||"Judge")&&sc.category===cat&&sc.song_index===songIdx);return(
+          <div key={cat} className="drow"><div className="dlbl">{cat}{already&&<span style={{color:"var(--gold)",marginLeft:6,fontSize:11}}>({already.score})</span>}</div><div className="dots">{[1,2,3,4,5,6,7,8,9,10].map(n=><button key={n} className={`dot ${get(currentGroup.id,cat,songIdx)===n?"on":""}`} onClick={()=>setScore(currentGroup.id,cat,songIdx,n)}>{n}</button>)}</div></div>
+        );})}
+        <div style={{marginTop:13}}><button className="btn bp" onClick={()=>submit(currentGroup.id,songIdx)}><Icon name="check" size={14}/> Submit {songs[songIdx]||"Song "+(songIdx+1)}</button></div>
+      </div>
     </div>
   );
 }
-
 function ChoirRegister({groups,role,user,askPin,showToast,onRefresh}) {
   const isOrg=role==="organizer";
   const avail=isOrg?groups:groups.filter(g=>g.id===user?.teamId);
@@ -1099,25 +1182,163 @@ function ChoirRegister({groups,role,user,askPin,showToast,onRefresh}) {
   );
 }
 
-function ChoirManage({groups,scores,cats,published,askPin,showToast,onRefresh}) {
+function ChoirManage({groups,scores,cats,songs,published,publishTeams,publishSpectators,spectatorMode,currentGroupId,eventId,askPin,showToast,onRefresh}) {
   const [newCat,setNewCat]=useState("");
-  const togglePublish=async()=>{const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));await supabase.from("fc_publish_flags").update({published:!published}).eq("event_id",ev.id).eq("competition","choir");showToast(published?"Hidden.":"Published!");onRefresh();};
-  const addCat=async()=>{if(!newCat.trim())return;const{data:ev}=await supabase.from("fc_events").select("id,choir_categories").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));const updated=[...(ev.choir_categories||cats),newCat];await supabase.from("fc_events").update({choir_categories:updated}).eq("id",ev.id);showToast("Category added!");setNewCat("");onRefresh();};
-  const removeCat=cat=>askPin("Remove Category","Enter organizer PIN.",async()=>{const{data:ev}=await supabase.from("fc_events").select("id,choir_categories").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));await supabase.from("fc_events").update({choir_categories:(ev.choir_categories||cats).filter(c=>c!==cat)}).eq("id",ev.id);showToast("Removed.");onRefresh();});
+  const currentIdx=groups.findIndex(g=>g.id===currentGroupId);
+  const currentGroup=groups.find(g=>g.id===currentGroupId);
+  const nextGroup=currentIdx>=0&&currentIdx<groups.length-1?groups[currentIdx+1]:null;
+
+  const updateEvent=async(fields)=>{
+    if(!eventId)return;
+    await supabase.from("fc_events").update(fields).eq("id",eventId);
+    onRefresh();
+  };
+
+  const startChoir=async()=>{
+    if(!groups.length){showToast("No groups set up.");return;}
+    await updateEvent({choir_current_group_id:groups[0].id});
+    showToast(`Started — ${groups[0].name} is now performing`);
+  };
+
+  const advanceGroup=async()=>{
+    if(!nextGroup){showToast("All groups have performed!");return;}
+    await updateEvent({choir_current_group_id:nextGroup.id});
+    showToast(`Advanced to ${nextGroup.name}`);
+  };
+
+  const togglePublishTeams=async()=>{
+    await updateEvent({choir_publish_teams:!publishTeams});
+    showToast(!publishTeams?"Results published to choir teams!":"Hidden from teams.");
+  };
+
+  const togglePublishSpectators=async()=>{
+    await updateEvent({choir_publish_spectators:!publishSpectators});
+    showToast(!publishSpectators?"Leaderboard published to spectators!":"Hidden from spectators.");
+  };
+
+  const toggleSpectatorMode=async()=>{
+    const next=spectatorMode==="hold"?"live":"hold";
+    await updateEvent({choir_spectator_mode:next});
+    showToast(next==="live"?"Spectators now see live scores":"Scores hidden until you publish");
+  };
+
+  const addCat=async()=>{
+    if(!newCat.trim())return;
+    const{data:evArr}=await supabase.from("fc_events").select("id,choir_categories").eq("is_active",true).limit(1);
+    const ev=evArr?.[0];if(!ev)return;
+    const updated=[...(ev.choir_categories||cats),newCat];
+    await supabase.from("fc_events").update({choir_categories:updated}).eq("id",ev.id);
+    showToast("Category added!");setNewCat("");onRefresh();
+  };
+
+  const removeCat=cat=>askPin("Remove Category","Enter organizer PIN.",async()=>{
+    const{data:evArr}=await supabase.from("fc_events").select("id,choir_categories").eq("is_active",true).limit(1);
+    const ev=evArr?.[0];if(!ev)return;
+    await supabase.from("fc_events").update({choir_categories:(ev.choir_categories||cats).filter(c=>c!==cat)}).eq("id",ev.id);
+    showToast("Removed.");onRefresh();
+  });
+
   return (
     <div className="pw">
-      <button className={`btn ${published?"bd":"bg"}`} style={{marginBottom:18}} onClick={togglePublish}><Icon name={published?"eyeoff":"publish"} size={14}/>{published?"Unpublish":"Publish Leaderboard"}</button>
-      <div className="sechd"><span className="secht">Scoring Categories</span></div>
-      <div className="card" style={{marginBottom:16}}>
-        <div style={{display:"flex",gap:8,marginBottom:12}}><input className="fi" value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Add new category..." style={{flex:1}} onKeyDown={e=>e.key==="Enter"&&addCat()}/><button className="btn bp bsm" style={{width:"auto"}} onClick={addCat}><Icon name="plus" size={14}/></button></div>
+      {/* Performance Control */}
+      <div className="fsec" style={{marginTop:0}}>Performance Control</div>
+      <div className="card card-gold" style={{marginBottom:14}}>
+        {!currentGroupId?(
+          <div>
+            <div style={{fontSize:13,color:"var(--muted)",marginBottom:12,lineHeight:1.5}}>Start the choir competition. Judges will only see the first performing group.</div>
+            <button className="btn bp" onClick={startChoir}><Icon name="signal" size={14}/> Start Choir Competition</button>
+          </div>
+        ):(
+          <div>
+            <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",marginBottom:8,fontWeight:700}}>Now Performing</div>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <TL name={currentGroup?.name} size={46}/>
+              <div>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:800}}>{currentGroup?.name}</div>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Group {currentIdx+1} of {groups.length}</div>
+              </div>
+            </div>
+            {nextGroup?(
+              <button className="btn bp" onClick={advanceGroup}><Icon name="signal" size={14}/> Advance to {nextGroup.name} →</button>
+            ):(
+              <div style={{fontSize:13,color:"#68d391",textAlign:"center",padding:"10px 0",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,letterSpacing:1}}>✅ All groups have performed</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Publish Controls */}
+      <div className="fsec">Publish Controls</div>
+      <div className="card" style={{marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div><div style={{fontSize:14,fontWeight:600}}>Publish to Choir Teams</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Each team sees their detailed scores per song</div></div>
+          <button className={`btn bsm ${publishTeams?"bd":"bg"}`} onClick={togglePublishTeams}><Icon name={publishTeams?"eyeoff":"publish"} size={13}/>{publishTeams?"Unpublish":"Publish"}</button>
+        </div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div><div style={{fontSize:14,fontWeight:600}}>Publish to Spectators</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Full leaderboard visible to everyone</div></div>
+          <button className={`btn bsm ${publishSpectators?"bd":"bg"}`} onClick={togglePublishSpectators}><Icon name={publishSpectators?"eyeoff":"publish"} size={13}/>{publishSpectators?"Unpublish":"Publish"}</button>
+        </div>
+      </div>
+
+      {/* Spectator mode */}
+      <div className="card card-sm" style={{marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div><div style={{fontSize:14,fontWeight:600}}>Spectator Visibility</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{spectatorMode==="live"?"Scores update live":"Held until MC announces"}</div></div>
+          <div style={{width:44,height:24,borderRadius:12,background:spectatorMode==="live"?"var(--gold)":"var(--border2)",position:"relative",cursor:"pointer",transition:"background .2s"}} onClick={toggleSpectatorMode}>
+            <div style={{position:"absolute",top:2,left:spectatorMode==="live"?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+          </div>
+        </div>
+      </div>
+
+      {/* Performance order */}
+      <div className="fsec">Performance Order</div>
+      <div className="card" style={{marginBottom:14}}>
+        {groups.map((g,i)=>(
+          <div key={g.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid var(--border)"}}>
+            <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:800,color:g.id===currentGroupId?"var(--gold)":"var(--muted2)",width:30}}>{i+1}</div>
+            <TL name={g.name} size={36}/>
+            <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{g.name}</div><div style={{fontSize:11,color:"var(--muted)"}}>{scores.filter(s=>s.group_id===g.id).length>0?"Scored":"Pending"}</div></div>
+            {g.id===currentGroupId&&<span className="tag tg">Now</span>}
+          </div>
+        ))}
+      </div>
+
+      {/* Scoring categories */}
+      <div className="fsec">Scoring Categories</div>
+      <div className="card">
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <input className="fi" value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Add category..." style={{flex:1}} onKeyDown={e=>e.key==="Enter"&&addCat()}/>
+          <button className="btn bp bsm" style={{width:"auto"}} onClick={addCat}><Icon name="plus" size={14}/></button>
+        </div>
         {cats.map(cat=>(<div key={cat} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--border)"}}><div style={{display:"flex",alignItems:"center",gap:8}}><Icon name="tag" size={14} stroke="var(--gold)"/><span style={{fontSize:14}}>{cat}</span></div><button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4}} onClick={()=>removeCat(cat)}><Icon name="x" size={15}/></button></div>))}
       </div>
-      <div className="sechd"><span className="secht">Groups</span></div>
-      {groups.map(g=>(<div key={g.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",background:"var(--navy3)",border:"1px solid var(--border)",borderRadius:10,marginBottom:8}}><TL name={g.name} size={40}/><div style={{flex:1}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700}}>{g.name}</div><div style={{fontSize:11,color:"var(--muted)"}}>{g.branch} · {g.fc_choir_members?.length||0} members</div></div><span className={`tag ${scores.filter(s=>s.group_id===g.id).length>0?"tgn":"tgm"}`}>{scores.filter(s=>s.group_id===g.id).length>0?"Scored":"Pending"}</span></div>))}
     </div>
   );
 }
 
+function ChoirSettings({cats,songs,spectatorMode,eventId,showToast,onRefresh}) {
+  const [localSongs,setLocalSongs]=useState(songs);
+  const saveSongs=async()=>{
+    if(!eventId)return;
+    await supabase.from("fc_events").update({choir_songs:localSongs}).eq("id",eventId);
+    showToast("Song titles saved!");onRefresh();
+  };
+  return (
+    <div className="pw">
+      <div className="fsec" style={{marginTop:0}}>Song Titles</div>
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5}}>Define the titles of the 3 songs each choir will perform. Judges will score each song separately.</div>
+        {localSongs.map((s,i)=>(
+          <div key={i} className="fg">
+            <label className="fl">Song {i+1}</label>
+            <input className="fi" value={s} onChange={e=>{const ns=[...localSongs];ns[i]=e.target.value;setLocalSongs(ns);}} placeholder={`e.g. Song ${i+1} title`}/>
+          </div>
+        ))}
+        <button className="btn bp" onClick={saveSongs}><Icon name="check" size={14}/> Save Song Titles</button>
+      </div>
+    </div>
+  );
+}
 function ChoirAllScores({groups,scores,cats}) {
   const ranked=rankGroups(groups,scores,cats);
   return <div className="pw"><div className="card">{ranked.map((r,i)=>(<div key={r.group.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 0",borderBottom:"1px solid var(--border)"}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:i<3?"var(--gold)":"var(--muted2)",width:26}}>#{i+1}</div><TL name={r.group.name} size={30}/><div style={{flex:1,marginLeft:6}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700}}>{r.group.name}</div><div style={{fontSize:10,color:"var(--muted)"}}>{r.judgeCount} judges · {cats.map((c,ci)=>`${c.charAt(0)}: ${(r.catAvgs[ci]||0).toFixed(1)}`).join(" · ")}</div></div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)"}}>{r.overall>0?r.overall.toFixed(1):"—"}</div></div>))}</div></div>;
@@ -1201,7 +1422,20 @@ function NewsPage({role,announcements,onRefresh,askPin,showToast}) {
   const [urgent,setUrgent]=useState(false);
   const [pushOn,setPushOn]=useState(()=>"Notification"in window&&Notification.permission==="granted");
   const isOrg=role==="organizer";
-  const enablePush=async()=>{const ok=await requestPush();setPushOn(ok);showToast(ok?"Push enabled!":"Permission denied.");};
+  const enablePush=async()=>{
+    const result=await requestPush();
+    setPushOn(result.ok);
+    if(result.ok){showToast("Push notifications enabled!");}
+    else if(result.reason==="denied"){
+      showToast("Blocked — enable in browser settings");
+      // Guide user to enable manually
+      alert("To enable notifications:\n\n1. Tap the padlock/info icon in your browser address bar\n2. Find 'Notifications'\n3. Change to 'Allow'\n4. Refresh the page");
+    } else if(result.reason==="not_supported"){
+      showToast("Not supported on this browser");
+    } else {
+      showToast("Could not enable — try from home screen app");
+    }
+  };
   const post=async()=>{
     if(!body.trim())return;
     try{
@@ -1336,7 +1570,23 @@ function PublishMgmt({showToast}) {
       if(!evId) throw new Error("No active event ID");
       await supabase.from("fc_publish_flags").update({published:!flags[comp],updated_at:new Date().toISOString()}).eq("event_id",evId).eq("competition",comp);
       // Don't setFlags locally — let the realtime subscription update all devices
-      showToast(!flags[comp]?"Published — all devices updated!":"Hidden on all devices.");
+      const compLabel = comp.charAt(0).toUpperCase()+comp.slice(1);
+      const isPublishing = !flags[comp];
+      showToast(isPublishing?`${compLabel} published to all devices!`:`${compLabel} hidden.`);
+      // Post news summary when publishing
+      if(isPublishing){
+        try{
+          const{data:ev2}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
+          if(ev2?.[0]){
+            await supabase.from("fc_announcements").insert({
+              event_id:ev2[0].id,
+              body:`📢 ${compLabel} results are now live! Check the ${compLabel} tab for the latest standings.`,
+              urgent:false,
+              posted_by:"System"
+            });
+          }
+        }catch(e){}
+      }
     } catch(e){ showToast("Error: "+e.message); }
   };
   return (
