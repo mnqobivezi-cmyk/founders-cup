@@ -44,6 +44,15 @@ function saveLocal(data) {
 // ─── PWA ──────────────────────────────────────────────────────────────────────
 function injectPWA() {
   if (document.getElementById("fc-pwa")) return;
+  // Page title
+  document.title = "Founder's Cup — CHG";
+  // Favicon
+  if(!document.querySelector("link[rel='icon']")){
+    const fi=Object.assign(document.createElement("link"),{rel:"icon",type:"image/jpeg",href:FC_LOGO});
+    document.head.appendChild(fi);
+    const fi2=Object.assign(document.createElement("link"),{rel:"shortcut icon",type:"image/jpeg",href:FC_LOGO});
+    document.head.appendChild(fi2);
+  }
   const m = {name:"Founder's Cup — CHG",short_name:"Founders Cup",start_url:"/",display:"standalone",background_color:"#0d1b3e",theme_color:"#0d1b3e",orientation:"portrait-primary",icons:[{src:FC_LOGO,sizes:"512x512",type:"image/jpeg",purpose:"any maskable"}]};
   const l = Object.assign(document.createElement("link"),{id:"fc-pwa",rel:"manifest",href:URL.createObjectURL(new Blob([JSON.stringify(m)],{type:"application/json"}))});
   document.head.appendChild(l);
@@ -127,7 +136,7 @@ const CSS = `
 }
 body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-height:100vh;overscroll-behavior:none;background-image:radial-gradient(ellipse at 20% 0%,rgba(240,180,41,.04) 0%,transparent 50%);}
 ::-webkit-scrollbar{width:3px;height:3px;}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
-.app{display:flex;flex-direction:column;min-height:100vh;max-width:480px;margin:0 auto;}
+.app{display:flex;flex-direction:column;min-height:100vh;max-width:480px;margin:0 auto;}@media(min-width:768px){.app{max-width:100%;}.app-body{max-width:900px;margin:0 auto;width:100%;}.nav{max-width:100%;}.hdr{max-width:100%;}}
 .app-body{flex:1;overflow-y:auto;padding-bottom:calc(var(--nav-h) + var(--safe-b) + 8px);}
 
 /* SPLASH */
@@ -170,7 +179,7 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 .rp{padding:4px 10px;border:1px solid var(--gold-border);border-radius:20px;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);background:var(--gold-dim);font-family:'Barlow Condensed',sans-serif;font-weight:700;}
 
 /* NAV */
-.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(13,27,62,.97);border-top:1px solid var(--gold-border);display:flex;padding-bottom:var(--safe-b);z-index:100;height:var(--nav-h);backdrop-filter:blur(20px);}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:100%;background:rgba(13,27,62,.97);border-top:1px solid var(--gold-border);display:flex;padding-bottom:var(--safe-b);z-index:100;height:var(--nav-h);backdrop-filter:blur(20px);}
 .ni{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:6px 2px;color:rgba(255,255,255,.6);transition:color .2s;border:none;background:none;position:relative;}
 .ni.on{color:var(--gold);}
 .ni.on::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:28px;height:2px;background:var(--gold);border-radius:0 0 3px 3px;}
@@ -450,7 +459,7 @@ function AdminModal({local,onLogin,onClose}) {
           <div>
             <button onClick={()=>setStep("role")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:11,letterSpacing:1,textTransform:"uppercase",fontFamily:"'Barlow Condensed',sans-serif",marginBottom:16,fontWeight:700}}>← Back</button>
             {users.length>0&&<div className="fg"><label className="fl">Your Profile</label><select className="fi" value={uid2} onChange={e=>setUid2(e.target.value)}><option value="">— Select —</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}{u.teamId?" — "+u.teamId:""}</option>)}</select></div>}
-            {users.length===0&&role!=="organizer"&&<div style={{fontSize:13,color:"var(--muted)",padding:"12px",background:"rgba(255,255,255,.03)",borderRadius:8,border:"1px solid var(--border)",marginBottom:14,lineHeight:1.5}}>No {role==="judge"?"judges":"team admins"} set up yet.</div>}
+            {users.length===0&&role!=="organizer"&&<div style={{fontSize:13,color:"var(--muted)",padding:"12px",background:"rgba(255,255,255,.03)",borderRadius:8,border:"1px solid var(--border)",marginBottom:14,lineHeight:1.5}}>No {role==="judge"?"judges":"team admins"} found on this device. Judge and team admin profiles are set up on the organizer's device. Please use the organizer's device to log in, or ask the organizer to set up profiles on this device.</div>}
             {(role==="organizer"||(uid2&&role!=="organizer"))&&(
               <>{err&&<div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:10}}>{err}</div>}
               {err&&<div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:10}}>{err}</div>}
@@ -489,7 +498,13 @@ function PWABanner() {
 export default function FoundersCup() {
   const [splash,setSplash]=useState(true);
   const [adminModal,setAdminModal]=useState(false);
-  const [user,setUser]=useState(null);
+  // Restore session from sessionStorage (survives refresh, cleared on tab close)
+  const [user,setUser]=useState(()=>{
+    try{
+      const s=sessionStorage.getItem("fc_session");
+      return s?JSON.parse(s):null;
+    }catch(e){return null;}
+  });
   const [tab,setTab]=useState("home");
   const [toast,showToast]=useToast();
   const [pinEl,askPin]=usePinDialog();
@@ -501,6 +516,26 @@ export default function FoundersCup() {
   const [unread,setUnread]=useState(0);
 
   useEffect(()=>{injectPWA();},[]);
+
+  // Session timer — auto logout after 8 hours
+  const [sessionStart] = useState(()=>Date.now());
+  const [sessionTime, setSessionTime] = useState("");
+  useEffect(()=>{
+    if(!user) return;
+    const iv = setInterval(()=>{
+      const elapsed = Date.now() - sessionStart;
+      const h = Math.floor(elapsed/3600000);
+      const m = Math.floor((elapsed%3600000)/60000);
+      setSessionTime(`${h}h ${m}m`);
+      // Auto logout after 8 hours
+      if(elapsed > 8*60*60*1000){
+        setUser(null); setTab("home");
+        try{sessionStorage.removeItem("fc_session");}catch(e){}
+        showToast("Session expired — please log in again.");
+      }
+    }, 30000);
+    return ()=>clearInterval(iv);
+  },[user, sessionStart]);
 
   // Refresh data when user switches back to the tab (fixes desktop delay)
   useEffect(()=>{
@@ -525,7 +560,8 @@ export default function FoundersCup() {
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"fc_announcements"},payload=>{
         setAnnouncements(a=>[payload.new,...a]);
         setUnread(u=>u+1);
-        if(Notification.permission==="granted") pushNotify(payload.new.urgent?"🚨 Founders Cup — Urgent":"📢 Founders Cup",payload.new.body);
+        // Only push if user explicitly enabled notifications in the app (not just browser permission)
+if(Notification.permission==="granted"&&localStorage.getItem("fc_push_enabled")==="1") pushNotify(payload.new.urgent?"🚨 Founders Cup — Urgent":"📢 Founders Cup",payload.new.body);
       })
       .on("postgres_changes",{event:"DELETE",schema:"public",table:"fc_announcements"},payload=>{
         setAnnouncements(a=>a.filter(x=>x.id!==payload.old.id));
@@ -578,7 +614,7 @@ export default function FoundersCup() {
     <>
       <style>{CSS}</style>
       {toast}{pinEl}
-      {adminModal&&<AdminModal local={local} onLogin={u=>{setUser(u);setAdminModal(false);showToast(`Welcome, ${u.name}`);if(u.role==="organizer")setTab("admin");else if(u.role==="judge")setTab("choir");else setTab("soccer");}} onClose={()=>setAdminModal(false)}/>}
+      {adminModal&&<AdminModal local={local} onLogin={u=>{setUser(u);setAdminModal(false);try{sessionStorage.setItem("fc_session",JSON.stringify(u));}catch(e){}showToast(`Welcome, ${u.name}`);if(u.role==="organizer")setTab("admin");else if(u.role==="judge")setTab("choir");else setTab("soccer");}} onClose={()=>setAdminModal(false)}/>}
       <div className="app">
         <header className="hdr">
           <div className="hdr-brand">
@@ -586,7 +622,7 @@ export default function FoundersCup() {
             <div><div className="h-title">Founder's Cup</div><div className="h-sub">Church of the Holy Ghost</div></div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            {user?(<><span className="rp">{user.name}</span><button className="adm-btn on" onClick={()=>{setUser(null);setTab("home");showToast("Signed out");}}><Icon name="lock" size={13}/> Out</button></>):(<button className="adm-btn" onClick={()=>setAdminModal(true)}><Icon name="admin" size={13}/> Admin</button>)}
+            {user?(<><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}}><span className="rp">{user.name}</span>{sessionTime&&<span style={{fontSize:9,color:"var(--muted)",letterSpacing:.5,fontFamily:"'Barlow Condensed',sans-serif"}}>{sessionTime}</span>}</div><button className="adm-btn on" onClick={()=>{setUser(null);setTab("home");showToast("Signed out");try{sessionStorage.removeItem("fc_session");}catch(e){}}}><Icon name="lock" size={13}/> Out</button></>):(<button className="adm-btn" onClick={()=>setAdminModal(true)}><Icon name="admin" size={13}/> Admin</button>)}
           </div>
         </header>
         <div className="app-body">
@@ -729,7 +765,9 @@ function SportPage({sport,role,user,local,askPin,showToast}) {
       .on("postgres_changes",{event:"*",schema:"public",table:"fc_players"},()=>load())
       .on("postgres_changes",{event:"*",schema:"public",table:"fc_publish_flags"},()=>load())
       .subscribe();
-    return()=>supabase.removeChannel(ch);
+    // Fallback poll every 15s for spectators on weak connections
+    const poll = setInterval(()=>load(), 15000);
+    return()=>{supabase.removeChannel(ch); clearInterval(poll);};
   },[sport,load]);
 
   let champ = null;
@@ -840,9 +878,12 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}) 
       // Delete old matches first
       await supabase.from("fc_matches").delete().eq("event_id",eid).eq("competition",sport);
       const sh=[...teams].sort(()=>Math.random()-.5);
+      // Delete ALL existing matches for this sport first to prevent duplicates
+      await supabase.from("fc_matches").delete().eq("event_id",eid).eq("competition",sport);
       const rows=[];
       for(let i=0;i<sh.length;i+=2){if(sh[i+1])rows.push({event_id:eid,competition:sport,round:1,team_a_id:sh[i].id,team_b_id:sh[i+1].id,status:"pending",published:false});}
-      await supabase.from("fc_matches").insert(rows);
+      const{error:ie}=await supabase.from("fc_matches").insert(rows);
+      if(ie) throw ie;
       showToast("Bracket generated!");onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
@@ -931,10 +972,13 @@ function RegisterView({sport,teams,role,user,local,askPin,showToast,onRefresh}) 
         id_number:f.idNumber,phone:f.phone,
         member_since:f.memberSince||null,
       });
-      showToast("Player registered!");
+      showToast("Player registered! ✓");
       setF({firstName:"",lastName:"",idNumber:"",jersey:"",position:"",ageGroup:"Open",phone:"",memberSince:""});
       onRefresh();
-    }catch(e){showToast("Error: "+e.message);}
+    }catch(e){
+      console.error("Registration error:",e);
+      showToast("Registration failed: "+(e.message||"Check connection and try again."));
+    }
   };
 
   return (
@@ -948,7 +992,7 @@ function RegisterView({sport,teams,role,user,local,askPin,showToast,onRefresh}) 
       </div>
       <div className="fsec">Personal Details</div>
       <div className="fgrid"><div className="fg"><label className="fl">First Name</label><input className="fi" value={f.firstName} onChange={e=>sf("firstName",e.target.value)} placeholder="e.g. Sipho"/></div><div className="fg"><label className="fl">Last Name</label><input className="fi" value={f.lastName} onChange={e=>sf("lastName",e.target.value)} placeholder="e.g. Dlamini"/></div></div>
-      <div className="fgrid"><div className="fg"><label className="fl">ID Number</label><input className="fi" value={f.idNumber} onChange={e=>sf("idNumber",e.target.value)} placeholder="SA ID"/></div><div className="fg"><label className="fl">Phone</label><input className="fi" value={f.phone} onChange={e=>sf("phone",e.target.value)} placeholder="082 000 0000" type="tel"/></div></div>
+      <div className="fgrid"><div className="fg"><label className="fl">ID Number</label><input className="fi" value={f.idNumber} onChange={e=>sf("idNumber",e.target.value)} placeholder="SA ID" maxLength={13} pattern="[0-9]*" inputMode="numeric"/></div><div className="fg"><label className="fl">Phone</label><input className="fi" value={f.phone} onChange={e=>sf("phone",e.target.value)} placeholder="082 000 0000" type="tel"/></div></div>
       <div className="fsec">Sport Details</div>
       <div className="fgrid"><div className="fg"><label className="fl">Jersey #</label><input className="fi" value={f.jersey} onChange={e=>sf("jersey",e.target.value)} placeholder="10"/></div><div className="fg"><label className="fl">Age Group</label><select className="fi" value={f.ageGroup} onChange={e=>sf("ageGroup",e.target.value)}>{["Under 13","Under 17","Under 21","Open"].map(a=><option key={a}>{a}</option>)}</select></div></div>
       <div className="fg"><label className="fl">Position</label><select className="fi" value={f.position} onChange={e=>sf("position",e.target.value)}><option value="">— Select —</option>{positions.map(p=><option key={p}>{p}</option>)}</select></div>
@@ -1164,14 +1208,14 @@ function ChoirRegister({groups,role,user,askPin,showToast,onRefresh}) {
   const group=groups.find(g=>g.id===sel);
   const submit=async()=>{
     if(!f.firstName.trim()||!f.lastName.trim()){showToast("Name required.");return;}
-    try{await supabase.from("fc_choir_members").insert({group_id:sel,first_name:f.firstName,last_name:f.lastName,id_number:f.idNumber,phone:f.phone,singing_voice:f.voice,choir_role:f.role,member_since:f.memberSince||null});showToast("Member registered!");setF({firstName:"",lastName:"",idNumber:"",phone:"",voice:"Soprano",role:"Member",memberSince:""});onRefresh();}catch(e){showToast("Error: "+e.message);}
+    try{await supabase.from("fc_choir_members").insert({group_id:sel,first_name:f.firstName,last_name:f.lastName,id_number:f.idNumber,phone:f.phone,singing_voice:f.voice,choir_role:f.role,member_since:f.memberSince||null});showToast("Member registered! ✓");setF({firstName:"",lastName:"",idNumber:"",phone:"",voice:"Soprano",role:"Member",memberSince:""});onRefresh();}catch(e){console.error("Choir reg error:",e);showToast("Registration failed: "+(e.message||"Check connection."));}
   };
   return (
     <div className="pw">
       <div className="card" style={{marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>{group&&<TL name={group.name} size={44}/>}<div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:18,fontWeight:800}}>{group?.name||"Select Group"}</div></div></div>{isOrg&&<div className="fg"><label className="fl">Select Group</label><select className="fi" value={sel} onChange={e=>setSel(e.target.value)}>{avail.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}</select></div>}</div>
       <div className="fsec">Personal Details</div>
       <div className="fgrid"><div className="fg"><label className="fl">First Name</label><input className="fi" value={f.firstName} onChange={e=>sf("firstName",e.target.value)} placeholder="e.g. Nomsa"/></div><div className="fg"><label className="fl">Last Name</label><input className="fi" value={f.lastName} onChange={e=>sf("lastName",e.target.value)} placeholder="e.g. Khumalo"/></div></div>
-      <div className="fgrid"><div className="fg"><label className="fl">ID Number</label><input className="fi" value={f.idNumber} onChange={e=>sf("idNumber",e.target.value)} placeholder="SA ID"/></div><div className="fg"><label className="fl">Phone</label><input className="fi" value={f.phone} onChange={e=>sf("phone",e.target.value)} placeholder="082 000 0000" type="tel"/></div></div>
+      <div className="fgrid"><div className="fg"><label className="fl">ID Number</label><input className="fi" value={f.idNumber} onChange={e=>sf("idNumber",e.target.value)} placeholder="SA ID" maxLength={13} pattern="[0-9]*" inputMode="numeric"/></div><div className="fg"><label className="fl">Phone</label><input className="fi" value={f.phone} onChange={e=>sf("phone",e.target.value)} placeholder="082 000 0000" type="tel"/></div></div>
       <div className="fsec">Choir Details</div>
       <div className="fgrid"><div className="fg"><label className="fl">Singing Voice</label><select className="fi" value={f.voice} onChange={e=>sf("voice",e.target.value)}>{VOICES.map(v=><option key={v}>{v}</option>)}</select></div><div className="fg"><label className="fl">Role</label><select className="fi" value={f.role} onChange={e=>sf("role",e.target.value)}>{["Member","Choir Leader","Deputy Leader","Soloist","Accompanist"].map(r=><option key={r}>{r}</option>)}</select></div></div>
       <div className="fsec">Church Membership <span style={{fontSize:9,color:"var(--muted)",letterSpacing:0,textTransform:"none",fontFamily:"'Barlow',sans-serif"}}>(Internal only)</span></div>
@@ -1605,14 +1649,22 @@ function PublishMgmt({showToast}) {
 }
 
 function Overview({local,askPin,showToast}) {
-  const resetComp=comp=>askPin(`Reset ${comp}`,"This permanently deletes all match data. Enter organizer PIN.",async()=>{
+  const resetComp=comp=>askPin(`Reset ${comp}`,"This permanently deletes ALL data for this competition. This cannot be undone. Enter organizer PIN.",async()=>{
     try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
-      if(comp==="choir"){await supabase.from("fc_choir_scores").delete().eq("event_id",ev.id);}
-      else{await supabase.from("fc_matches").delete().eq("event_id",ev.id).eq("competition",comp);}
-      await supabase.from("fc_publish_flags").update({published:false}).eq("event_id",ev.id).eq("competition",comp==="choir"?"choir":comp);
-      showToast(`${comp} reset.`);
-    }catch(e){showToast("Error: "+e.message);}
+      if(!ev||!ev.id) throw new Error("No active event found");
+      if(comp==="choir"){
+        await supabase.from("fc_choir_scores").delete().eq("event_id",ev.id);
+        await supabase.from("fc_events").update({choir_current_group_id:null}).eq("id",ev.id);
+      } else {
+        await supabase.from("fc_matches").delete().eq("event_id",ev.id).eq("competition",comp);
+        const{data:teams}=await supabase.from("fc_teams").select("id").eq("event_id",ev.id).eq("competition",comp);
+        if(teams&&teams.length) await supabase.from("fc_players").delete().in("team_id",teams.map(t=>t.id));
+      }
+      const{error:e2}=await supabase.from("fc_publish_flags").update({published:false,updated_at:new Date().toISOString()}).eq("event_id",ev.id).eq("competition",comp==="choir"?"choir":comp);
+      if(e2) throw e2;
+      showToast(`${comp} reset successfully.`);
+    }catch(e){console.error("Reset error:",e);showToast("Reset failed: "+e.message);}
   });
   return (
     <div className="pw">
