@@ -10,14 +10,18 @@ const supabase = createClient(
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const FC_LOGO = "https://static.wixstatic.com/media/4877d6_4bad42a571ec47e982d9b2ec2b4c9a22~mv2.jpeg";
 const TEAM_META = {
-  "Durban Central": { logo:"https://static.wixstatic.com/media/4877d6_e293da9b5c374495864511964d6dd921~mv2.jpg" },
-  "Wakanda":        { logo:"https://static.wixstatic.com/media/4877d6_d49e5298427146faa1a5e22be776a2ec~mv2.jpg" },
-  "Cape Town":      { logo:"https://static.wixstatic.com/media/4877d6_9973532eb7e5406682fb091353a111ad~mv2.jpg" },
-  "Swacunda":       { logo:"https://static.wixstatic.com/media/4877d6_87f5f6f53d31470eb025f6ea35f8b632~mv2.jpg" },
-  "Mighty":         { logo:"https://static.wixstatic.com/media/4877d6_5d6cb7ce14b54374a5dddb18a4173500~mv2.jpg" },
-  "Zululand":       { logo:"https://static.wixstatic.com/media/4877d6_0d2034b959604f6fa1e66df62e31f49f~mv2.jpg" },
-  "Mlungwane":      { logo:"https://static.wixstatic.com/media/4877d6_0711c82df47f4dc797de9abf523ffc50~mv2.jpg" },
-  "Durban South":   { logo:"https://static.wixstatic.com/media/4877d6_a01acbcd8df24c9ba467e564706e34f9~mv2.jpg" },
+  // Soccer & Netball teams
+  "Durban Central": { logo:"https://static.wixstatic.com/media/4877d6_e293da9b5c374495864511964d6dd921~mv2.jpg" }, // Elephant
+  "Wakanda":        { logo:"https://static.wixstatic.com/media/4877d6_d49e5298427146faa1a5e22be776a2ec~mv2.jpg" }, // Black panther
+  "Cape Town":      { logo:"https://static.wixstatic.com/media/4877d6_9973532eb7e5406682fb091353a111ad~mv2.jpg" }, // Whale
+  "Swacunda":       { logo:"https://static.wixstatic.com/media/4877d6_87f5f6f53d31470eb025f6ea35f8b632~mv2.jpg" }, // Zebra
+  "Mighty":         { logo:"https://static.wixstatic.com/media/4877d6_5d6cb7ce14b54374a5dddb18a4173500~mv2.jpg" }, // Buffalo (Durban West)
+  "Zululand":       { logo:"https://static.wixstatic.com/media/4877d6_0d2034b959604f6fa1e66df62e31f49f~mv2.jpg" }, // Lion
+  "Mlungwane":      { logo:"https://static.wixstatic.com/media/4877d6_0711c82df47f4dc797de9abf523ffc50~mv2.jpg" }, // Mlungwane Limpopo
+  "Durban South":   { logo:"https://static.wixstatic.com/media/4877d6_a01acbcd8df24c9ba467e564706e34f9~mv2.jpg" }, // Yellow cheetah
+  // Choir teams (Othandweni = Wakanda OT = black panther)
+  "Othandweni":     { logo:"https://static.wixstatic.com/media/4877d6_d49e5298427146faa1a5e22be776a2ec~mv2.jpg" }, // Black panther = Wakanda OT
+  "Durban North":   { logo:"https://static.wixstatic.com/media/4877d6_e293da9b5c374495864511964d6dd921~mv2.jpg" }, // Elephant = Durban Central branch
 };
 const getLogo = name => TEAM_META[name]?.logo || FC_LOGO;
 
@@ -136,7 +140,29 @@ const CSS = `
 }
 body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-height:100vh;overscroll-behavior:none;background-image:radial-gradient(ellipse at 20% 0%,rgba(240,180,41,.04) 0%,transparent 50%);}
 ::-webkit-scrollbar{width:3px;height:3px;}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
-.app{display:flex;flex-direction:column;min-height:100vh;max-width:480px;margin:0 auto;}@media(min-width:768px){.app{max-width:100%;}.app-body{max-width:900px;margin:0 auto;width:100%;}.nav{max-width:100%;}.hdr{max-width:100%;}}
+.app{display:flex;flex-direction:column;min-height:100vh;max-width:480px;margin:0 auto;}
+/* ─── RESPONSIVE DESKTOP ─── */
+@media(min-width:768px){
+  .app{max-width:100%;}
+  .app-body{display:flex;justify-content:center;}
+  .hdr{max-width:100%;padding:12px 32px;}
+  .nav{max-width:100%;padding:0 calc(50% - 400px);}
+  .pg-banner,.pgb{padding:28px 40px 22px;}
+  .inner{padding:20px 40px 8px;max-width:860px;margin:0 auto;width:100%;}
+  .hero{padding:36px 40px 28px;}
+  .tgrid{grid-template-columns:repeat(8,1fr);gap:14px;}
+  .srow{grid-template-columns:repeat(3,200px);}
+  .fgrid{grid-template-columns:1fr 1fr 1fr;}
+  .tabs{padding:0 40px;}
+  .card{max-width:860px;}
+  .bscroll{padding:0 40px 16px;}
+  .pwab{margin:0 40px 14px;}
+}
+@media(min-width:1024px){
+  .tgrid{grid-template-columns:repeat(8,1fr);}
+  .hdr{padding:12px 48px;}
+  .inner{max-width:960px;}
+}
 .app-body{flex:1;overflow-y:auto;padding-bottom:calc(var(--nav-h) + var(--safe-b) + 8px);}
 
 /* SPLASH */
@@ -1649,21 +1675,26 @@ function PublishMgmt({showToast}) {
 }
 
 function Overview({local,askPin,showToast}) {
-  const resetComp=comp=>askPin(`Reset ${comp}`,"This permanently deletes ALL data for this competition. This cannot be undone. Enter organizer PIN.",async()=>{
+  const resetComp=comp=>askPin(`Reset ${comp}`,"This permanently deletes ALL data for this competition. Enter organizer PIN.",async()=>{
     try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
       if(!ev||!ev.id) throw new Error("No active event found");
+      const eid=ev.id;
       if(comp==="choir"){
-        await supabase.from("fc_choir_scores").delete().eq("event_id",ev.id);
-        await supabase.from("fc_events").update({choir_current_group_id:null}).eq("id",ev.id);
+        const{data:scores}=await supabase.from("fc_choir_scores").select("id").eq("event_id",eid);
+        if(scores?.length) for(const s of scores) await supabase.from("fc_choir_scores").delete().eq("id",s.id);
+        await supabase.from("fc_events").update({choir_current_group_id:null,choir_publish_teams:false,choir_publish_spectators:false}).eq("id",eid);
       } else {
-        await supabase.from("fc_matches").delete().eq("event_id",ev.id).eq("competition",comp);
-        const{data:teams}=await supabase.from("fc_teams").select("id").eq("event_id",ev.id).eq("competition",comp);
-        if(teams&&teams.length) await supabase.from("fc_players").delete().in("team_id",teams.map(t=>t.id));
+        const{data:matches}=await supabase.from("fc_matches").select("id").eq("event_id",eid).eq("competition",comp);
+        if(matches?.length) for(const m of matches) await supabase.from("fc_matches").delete().eq("id",m.id);
+        const{data:teams}=await supabase.from("fc_teams").select("id").eq("event_id",eid).eq("competition",comp);
+        if(teams?.length) for(const t of teams){
+          const{data:players}=await supabase.from("fc_players").select("id").eq("team_id",t.id);
+          if(players?.length) for(const p of players) await supabase.from("fc_players").delete().eq("id",p.id);
+        }
       }
-      const{error:e2}=await supabase.from("fc_publish_flags").update({published:false,updated_at:new Date().toISOString()}).eq("event_id",ev.id).eq("competition",comp==="choir"?"choir":comp);
-      if(e2) throw e2;
-      showToast(`${comp} reset successfully.`);
+      await supabase.from("fc_publish_flags").update({published:false,updated_at:new Date().toISOString()}).eq("event_id",eid).eq("competition",comp==="choir"?"choir":comp);
+      showToast(`${comp} has been reset ✓`);
     }catch(e){console.error("Reset error:",e);showToast("Reset failed: "+e.message);}
   });
   return (
