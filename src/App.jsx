@@ -39,6 +39,19 @@ const CONFIRMED_DRAW = {
   netball: [["Zululand","Durban Central"],["Swacunda","Cape Town"],["Durban South","Mighty"],["Wakanda","Mlungwane"]],
 };
 
+// ─── CONFIRMED CHOIR SONG PERFORMANCE ORDERS ─────────────────────────────────
+const CHOIR_SONG_ORDERS = {
+  0: ["Durban North","Zululand","Durban South","Othandweni"],   // Song 1: African Piece
+  1: ["Othandweni","Zululand","Durban South","Durban North"],   // Song 2: Western Piece
+  2: ["Zululand","Durban South","Othandweni","Durban North"],   // Song 3: Own Choice
+};
+
+const CHOIR_SONGS = [
+  "African Piece: Ruri by Mosoeu Moerane",
+  "Western Piece: Blessed Are The Men Who Fear Him by F Mendelssohn",
+  "Own Choice"
+];
+
 // ─── LOCAL-ONLY STATE (judges, team admins, votes — device-specific) ──────────
 function loadLocal() {
   // Clear old localStorage keys from v5/v6 that might cause conflicts
@@ -407,9 +420,6 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 .ssn{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-align:center;}
 .ssp{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:2px;padding:0 6px;margin-top:20px;}
 
-/* TEST MODE BANNER */
-.test-banner{position:fixed;top:0;left:0;right:0;z-index:999;background:#e53e3e;color:#fff;text-align:center;padding:6px 16px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;display:flex;align-items:center;justify-content:center;gap:10px;}
-.test-banner-dismiss{background:rgba(255,255,255,.2);border:none;color:#fff;padding:3px 10px;border-radius:4px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 /* MISC */
 .since{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:4px;background:rgba(240,180,41,.06);border:1px solid var(--gold-border);font-size:11px;color:var(--muted);}
 .jhdr{background:var(--gold-dim);border:1px solid var(--gold-border);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;}
@@ -567,14 +577,7 @@ export default function FoundersCup() {
   const [pinEl,askPin]=usePinDialog();
   const [local,setLocal]=useState(loadLocal);
   const [lastSeen,setLastSeen]=useState(()=>parseInt(localStorage.getItem("fc_last_seen")||"0"));
-  const [testMode,setTestMode]=useState(()=>!!localStorage.getItem("fc_test_mode"));
 
-  const toggleTestMode=()=>{
-    const next=!testMode;
-    setTestMode(next);
-    if(next) localStorage.setItem("fc_test_mode","1");
-    else localStorage.removeItem("fc_test_mode");
-  };
 
   // Realtime: announcements badge counter
   const [announcements,setAnnouncements]=useState([]);
@@ -681,13 +684,7 @@ if(Notification.permission==="granted"&&localStorage.getItem("fc_push_enabled")=
       {toast}{pinEl}
       {adminModal&&<AdminModal local={local} onLogin={u=>{setUser(u);setAdminModal(false);try{sessionStorage.setItem("fc_session",JSON.stringify(u));}catch(e){}showToast(`Welcome, ${u.name}`);if(u.role==="organizer")setTab("admin");else if(u.role==="judge")setTab("choir");else setTab("soccer");}} onClose={()=>setAdminModal(false)}/>}
       <div className="app">
-        {testMode&&(
-          <div className="test-banner">
-            🧪 TEST MODE — Scores will not affect live results
-            <button className="test-banner-dismiss" onClick={toggleTestMode}>Exit Test Mode</button>
-          </div>
-        )}
-        <header className="hdr" style={testMode?{marginTop:36}:{}}>
+        <header className="hdr">
           <div className="hdr-brand">
             <img src={FC_LOGO} className="hdr-logo" alt=""/>
             <div><div className="h-title">Founder's Cup</div><div className="h-sub">Church of the Holy Ghost</div></div>
@@ -698,12 +695,12 @@ if(Notification.permission==="granted"&&localStorage.getItem("fc_push_enabled")=
         </header>
         <div className="app-body">
           {tab==="home"   &&<HomePage announcements={announcements} onChampClick={sport=>{if(sport==="soccer")setTab("soccer");else if(sport==="netball")setTab("netball");else if(sport==="choir")setTab("choir");}}/>}
-          {tab==="soccer" &&<SportPage sport="soccer"  role={role} user={user} local={local} askPin={askPin} showToast={showToast} testMode={testMode}/>}
-          {tab==="netball"&&<SportPage sport="netball" role={role} user={user} local={local} askPin={askPin} showToast={showToast} testMode={testMode}/>}
+          {tab==="soccer" &&<SportPage sport="soccer"  role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
+          {tab==="netball"&&<SportPage sport="netball" role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
           {tab==="choir"  &&<ChoirPage role={role} user={user} local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
           {tab==="vote"   &&<VotePage  role={role} user={user} local={local} setLocal={setLocal} showToast={showToast}/>}
           {tab==="news"   &&<NewsPage  role={role} announcements={announcements} onRefresh={loadAnnouncements} askPin={askPin} showToast={showToast}/>}
-          {tab==="admin"  &&isOrg&&<AdminPage local={local} setLocal={setLocal} askPin={askPin} showToast={showToast} testMode={testMode} onToggleTestMode={toggleTestMode}/>}
+          {tab==="admin"  &&isOrg&&<AdminPage local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
         </div>
         <nav className="nav">
           {navItems.map(n=>(
@@ -799,7 +796,7 @@ function HomePage({announcements, onChampClick}) {
 }
 
 // ─── SPORT PAGE ───────────────────────────────────────────────────────────────
-function SportPage({sport,role,user,local,askPin,showToast,testMode}) {
+function SportPage({sport,role,user,local,askPin,showToast}) {
   const [tab,setTab]=useState("bracket");
   const [teams,setTeams]=useState([]);
   const [matches,setMatches]=useState([]);
@@ -866,9 +863,9 @@ function SportPage({sport,role,user,local,askPin,showToast,testMode}) {
       <div className="tabs">{tabs.map(t=><button key={t.id} className={`tab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>{t.lbl}</button>)}</div>
       <div className="inner">
         {loading?<Spinner/>:<>
-          {tab==="bracket" &&<BracketView matches={matches} isOrg={isOrg} published={published} testMode={testMode}/>}
+          {tab==="bracket" &&<BracketView matches={matches} isOrg={isOrg} published={published}/>}
           {tab==="teams"   &&<TeamsView teams={teams} isOrg={isOrg} sport={sport} askPin={askPin} showToast={showToast} onRefresh={load}/>}
-          {tab==="scores"  &&isOrg&&<ScoresView sport={sport} teams={teams} matches={matches} published={published} askPin={askPin} showToast={showToast} onRefresh={load} testMode={testMode}/>}
+          {tab==="scores"  &&isOrg&&<ScoresView sport={sport} teams={teams} matches={matches} published={published} askPin={askPin} showToast={showToast} onRefresh={load}/>}
           {tab==="register"&&(isOrg||isTA)&&<RegisterView sport={sport} teams={teams} role={role} user={user} local={local} askPin={askPin} showToast={showToast} onRefresh={load}/>}
         </>}
       </div>
@@ -876,7 +873,7 @@ function SportPage({sport,role,user,local,askPin,showToast,testMode}) {
   );
 }
 
-function BracketView({matches,isOrg,published,testMode}) {
+function BracketView({matches,isOrg,published}) {
   const visible=isOrg?matches:(published?matches:[]);
   if(!visible.length)return<div className="empty fu"><div className="eti"><Icon name="bracket" size={38} sw={1}/></div><div className="ett">{isOrg?"The confirmed draw will appear here. Use the Scores tab to enter results.":"Bracket will appear once published."}</div></div>;
   const rounds=[...new Set(visible.map(m=>m.round))].sort((a,b)=>a-b);
@@ -896,7 +893,7 @@ function BracketView({matches,isOrg,published,testMode}) {
                     <span className={`msc ${s.sc===null?"dim":""}`}>{s.sc??"—"}</span>
                   </div>
                 ))}
-                <div className="mfoot">{m.winner_id?`${m.winner_name} advances`:m.status==="test_completed"?"Test result":m.status==="pending"?"Upcoming":"Upcoming"}{m.status==="test_completed"&&" 🧪"}</div>
+                <div className="mfoot">{m.winner_id?`${m.winner_name} advances`:"Upcoming"}</div>
               </div>
             ))}
           </div>
@@ -936,7 +933,7 @@ function TeamsView({teams,isOrg,sport,askPin,showToast,onRefresh}) {
   );
 }
 
-function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh,testMode}) {
+function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}) {
   const [saving,setSaving]=useState(false);
   const [advanceMatch,setAdvanceMatch]=useState(null); // match waiting for advance confirmation
   const getTeamName=id=>teams.find(t=>t.id===id)?.name;
@@ -955,12 +952,12 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh,te
       // Mark match as complete
       await supabase.from("fc_matches").update({
         winner_id:winner,
-        status: testMode?"test_completed":"completed",
-        voting_open:!testMode
+        status:"completed",
+        voting_open:true
       }).eq("id",m.id);
-      showToast(`${winnerName} wins!${testMode?" (Test)":""}`);
+      showToast(`${winnerName} wins!`);
       // Show advance confirmation dialog
-      setAdvanceMatch({matchId:m.id,winnerId:winner,winnerName,round:m.round,testMode});
+      setAdvanceMatch({matchId:m.id,winnerId:winner,winnerName,round:m.round});
       onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
@@ -999,8 +996,7 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh,te
 
   return (
     <div>
-      {/* Test mode warning banner */}
-      {testMode&&<div style={{background:"rgba(229,62,62,.15)",border:"1px solid rgba(229,62,62,.4)",borderRadius:8,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:18}}>🧪</span><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,color:"#fc8181",letterSpacing:.5}}>TEST MODE ACTIVE</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Scores are marked as test data and will not affect live results</div></div></div>}
+
       {/* Advance confirmation dialog */}
       {advanceMatch&&(
         <div style={{background:"var(--gold-dim)",border:"1px solid var(--gold-border)",borderRadius:12,padding:16,marginBottom:14}}>
@@ -1060,6 +1056,7 @@ function RegisterView({sport,teams,role,user,local,askPin,showToast,onRefresh}) 
         jersey_number:f.jersey,position:f.position,age_group:f.ageGroup,
         id_number:f.idNumber,phone:f.phone,
         member_since:f.memberSince||null,
+        player_role:f.playerRole||"Player",
       });
       showToast("Player registered! ✓");
       setF({firstName:"",lastName:"",idNumber:"",jersey:"",position:"",ageGroup:"Open",phone:"",memberSince:""});
@@ -1084,10 +1081,17 @@ function RegisterView({sport,teams,role,user,local,askPin,showToast,onRefresh}) 
       <div className="fgrid"><div className="fg"><label className="fl">ID Number</label><input className="fi" value={f.idNumber} onChange={e=>sf("idNumber",e.target.value)} placeholder="SA ID" maxLength={13} pattern="[0-9]*" inputMode="numeric"/></div><div className="fg"><label className="fl">Phone</label><input className="fi" value={f.phone} onChange={e=>sf("phone",e.target.value)} placeholder="082 000 0000" type="tel"/></div></div>
       <div className="fsec">Sport Details</div>
       <div className="fgrid"><div className="fg"><label className="fl">Jersey #</label><input className="fi" value={f.jersey} onChange={e=>sf("jersey",e.target.value)} placeholder="10"/></div><div className="fg"><label className="fl">Age Group</label><select className="fi" value={f.ageGroup} onChange={e=>sf("ageGroup",e.target.value)}>{["Under 13","Under 17","Under 21","Open"].map(a=><option key={a}>{a}</option>)}</select></div></div>
-      <div className="fg"><label className="fl">Position</label><select className="fi" value={f.position} onChange={e=>sf("position",e.target.value)}><option value="">— Select —</option>{positions.map(p=><option key={p}>{p}</option>)}</select></div>
+      <div className="fgrid">
+        <div className="fg"><label className="fl">Position</label><select className="fi" value={f.position} onChange={e=>sf("position",e.target.value)}><option value="">— Select —</option>{positions.map(p=><option key={p}>{p}</option>)}</select></div>
+        <div className="fg"><label className="fl">Role</label><select className="fi" value={f.playerRole||"Player"} onChange={e=>sf("playerRole",e.target.value)}>{["Player","Captain","Vice Captain","Coach","Manager"].map(r=><option key={r}>{r}</option>)}</select></div>
+      </div>
       <div className="fsec">Church Membership <span style={{fontSize:9,color:"var(--muted)",letterSpacing:0,textTransform:"none",fontFamily:"'Barlow',sans-serif"}}>(Internal only)</span></div>
       <div className="fg"><label className="fl"><Icon name="cal" size={11} stroke="var(--gold)"/> Member Since</label><input className="fi" type="date" value={f.memberSince} onChange={e=>sf("memberSince",e.target.value)} max={new Date().toISOString().split("T")[0]} style={{colorScheme:"dark"}}/>{f.memberSince&&<div style={{marginTop:6}}><div className="since"><Icon name="shield" size={11} stroke="var(--gold)"/>Member for {Math.floor((new Date()-new Date(f.memberSince))/(1000*60*60*24*365))} years</div></div>}</div>
       <button className="btn bp" onClick={submit}><Icon name="plus" size={15}/> Register Player</button>
+
+      {/* Spreadsheet Upload */}
+      <div className="fsec" style={{marginTop:24}}>Or Upload Spreadsheet</div>
+      <SpreadsheetUpload teamId={sel} sport={sport} onRefresh={onRefresh} showToast={showToast}/>
       {team?.fc_players?.length>0&&(<><div className="sechd" style={{marginTop:18}}><span className="secht">{team.name} · {team.fc_players.length} registered</span></div>{team.fc_players.map(p=>(<div key={p.id} className="pcard"><div className="pav">{(p.first_name||p.name||"?").charAt(0)}</div><div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{p.first_name||p.name} {p.last_name||""}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>#{p.jersey_number} · {p.position}</div></div><button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4}} onClick={()=>askPin("Remove Player","Enter organizer PIN.",async()=>{await supabase.from("fc_players").delete().eq("id",p.id);showToast("Removed.");onRefresh();})}><Icon name="trash" size={14}/></button></div>))}</>)}
     </div>
   );
@@ -1423,18 +1427,25 @@ function ChoirManage({groups,scores,cats,songs,published,publishTeams,publishSpe
         </div>
       </div>
 
-      {/* Performance order */}
-      <div className="fsec">Performance Order</div>
-      <div className="card" style={{marginBottom:14}}>
-        {groups.map((g,i)=>(
-          <div key={g.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid var(--border)"}}>
-            <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:800,color:g.id===currentGroupId?"var(--gold)":"var(--muted2)",width:30}}>{i+1}</div>
-            <TL name={g.name} size={36}/>
-            <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{g.name}</div><div style={{fontSize:11,color:"var(--muted)"}}>{scores.filter(s=>s.group_id===g.id).length>0?"Scored":"Pending"}</div></div>
-            {g.id===currentGroupId&&<span className="tag tg">Now</span>}
-          </div>
-        ))}
-      </div>
+      {/* Performance order per song */}
+      <div className="fsec">Performance Order Per Song</div>
+      {CHOIR_SONGS.map((song,si)=>(
+        <div key={si} className="card" style={{marginBottom:10}}>
+          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:10}}>Song {si+1}: {song}</div>
+          {(CHOIR_SONG_ORDERS[si]||[]).map((name,i)=>{
+            const g=groups.find(x=>x.name===name);
+            const songScored=g?scores.filter(s=>s.group_id===g.id&&s.song_index===si).length>0:false;
+            return(
+              <div key={name} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:18,fontWeight:800,color:g?.id===currentGroupId?"var(--gold)":"var(--muted2)",width:26}}>{i+1}</div>
+                {g&&<TL name={g.name} size={32}/>}
+                <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{name}</div><div style={{fontSize:11,color:"var(--muted)"}}>{songScored?"✅ Scored":"Pending"}</div></div>
+                {g?.id===currentGroupId&&<span className="tag tg">Now</span>}
+              </div>
+            );
+          })}
+        </div>
+      ))}
 
       {/* Scoring categories */}
       <div className="fsec">Scoring Categories</div>
@@ -1475,6 +1486,138 @@ function ChoirSettings({cats,songs,spectatorMode,eventId,showToast,onRefresh}) {
 function ChoirAllScores({groups,scores,cats}) {
   const ranked=rankGroups(groups,scores,cats);
   return <div className="pw"><div className="card">{ranked.map((r,i)=>(<div key={r.group.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 0",borderBottom:"1px solid var(--border)"}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:i<3?"var(--gold)":"var(--muted2)",width:26}}>#{i+1}</div><TL name={r.group.name} size={30}/><div style={{flex:1,marginLeft:6}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700}}>{r.group.name}</div><div style={{fontSize:10,color:"var(--muted)"}}>{r.judgeCount} judges · {cats.map((c,ci)=>`${c.charAt(0)}: ${(r.catAvgs[ci]||0).toFixed(1)}`).join(" · ")}</div></div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)"}}>{r.overall>0?r.overall.toFixed(1):"—"}</div></div>))}</div></div>;
+}
+
+
+// ─── SPREADSHEET UPLOAD COMPONENT ────────────────────────────────────────────
+function SpreadsheetUpload({teamId, sport, onRefresh, showToast}) {
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [errors, setErrors] = useState([]);
+  const fileRef = React.useRef();
+
+  const EXPECTED_HEADERS = [
+    "first_name","last_name","id_number","phone",
+    "jersey_number","position","age_group","player_role","member_since"
+  ];
+
+  const parseCSV = (text) => {
+    const lines = text.trim().split("\n").map(l=>l.replace(/\r/g,""));
+    if(!lines.length) return {rows:[],errors:["Empty file"]};
+    const headers = lines[0].split(",").map(h=>h.trim().toLowerCase().replace(/\s+/g,"_").replace(/[^a-z_]/g,""));
+    const errs = [];
+    const rows = [];
+    lines.slice(1).forEach((line,i)=>{
+      if(!line.trim()) return;
+      const vals = line.split(",").map(v=>v.trim().replace(/^"|"$/g,""));
+      const row = {};
+      headers.forEach((h,j)=>{ row[h]=vals[j]||""; });
+      if(!row.first_name||!row.last_name) errs.push(`Row ${i+2}: first_name and last_name are required`);
+      else rows.push(row);
+    });
+    return {rows,errors:errs};
+  };
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    if(!["csv","txt"].includes(ext)){showToast("Please upload a CSV file");return;}
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const {rows,errors:errs} = parseCSV(ev.target.result);
+      setPreview(rows);
+      setErrors(errs);
+    };
+    reader.readAsText(file);
+  };
+
+  const uploadPlayers = async () => {
+    if(!preview?.length){showToast("No valid players to upload");return;}
+    setUploading(true);
+    try {
+      let success=0, failed=0;
+      for(const row of preview){
+        try{
+          await supabase.from("fc_players").insert({
+            team_id: teamId,
+            name: `${row.first_name} ${row.last_name}`,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            id_number: row.id_number||null,
+            phone: row.phone||null,
+            jersey_number: row.jersey_number||null,
+            position: row.position||null,
+            age_group: row.age_group||"Open",
+            player_role: row.player_role||"Player",
+            member_since: row.member_since||null,
+          });
+          success++;
+        }catch(e){ failed++; }
+      }
+      showToast(`Uploaded ${success} players${failed>0?", "+failed+" failed":""}`);
+      setPreview(null);
+      setErrors([]);
+      if(fileRef.current) fileRef.current.value="";
+      onRefresh();
+    }catch(e){ showToast("Upload failed: "+e.message); }
+    setUploading(false);
+  };
+
+  return (
+    <div>
+      <div style={{background:"rgba(240,180,41,.06)",border:"1px solid var(--gold-border)",borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontSize:13,color:"var(--muted)",lineHeight:1.6,marginBottom:10}}>
+          Upload a CSV file with one player per row. First row must be the column headers exactly as shown below.
+        </div>
+        <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:1,color:"var(--gold)",fontWeight:700,marginBottom:6}}>Required CSV Format:</div>
+        <div style={{fontFamily:"Courier New, monospace",fontSize:11,color:"#68d391",background:"rgba(0,0,0,.3)",padding:"8px 10px",borderRadius:6,overflowX:"auto",whiteSpace:"nowrap",marginBottom:8}}>
+          first_name,last_name,id_number,phone,jersey_number,position,age_group,player_role,member_since
+        </div>
+        <div style={{fontSize:11,color:"var(--muted)",lineHeight:1.8}}>
+          <strong style={{color:"#fff"}}>age_group:</strong> Under 13 | Under 17 | Under 21 | Open<br/>
+          <strong style={{color:"#fff"}}>position ({sport==="soccer"?"Soccer":"Netball"}):</strong> {sport==="soccer"?"Goalkeeper, Defender, Midfielder, Striker, Captain":"Goal Shooter, Goal Attack, Wing Attack, Centre, Wing Defence, Goal Defence, Goal Keeper"}<br/>
+          <strong style={{color:"#fff"}}>player_role:</strong> Player | Captain | Vice Captain | Coach | Manager<br/>
+          <strong style={{color:"#fff"}}>member_since:</strong> YYYY-MM-DD format (e.g. 2018-03-15)<br/>
+          <strong style={{color:"#fff"}}>id_number:</strong> SA ID — 13 digits
+        </div>
+      </div>
+
+      <div style={{border:"2px dashed var(--gold-border)",borderRadius:10,padding:20,textAlign:"center",cursor:"pointer",marginBottom:12}} onClick={()=>fileRef.current?.click()}>
+        <Icon name="download" size={24} stroke="var(--gold)"/>
+        <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700,color:"var(--gold)",marginTop:8}}>Tap to select CSV file</div>
+        <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>Accepts .csv files only</div>
+        <input ref={fileRef} type="file" accept=".csv,.txt" style={{display:"none"}} onChange={handleFile}/>
+      </div>
+
+      {errors.length>0&&(
+        <div style={{background:"rgba(229,62,62,.1)",border:"1px solid rgba(229,62,62,.3)",borderRadius:8,padding:12,marginBottom:12}}>
+          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:700,color:"#fc8181",marginBottom:6}}>⚠️ {errors.length} issue{errors.length>1?"s":""} found</div>
+          {errors.map((e,i)=><div key={i} style={{fontSize:12,color:"#fc8181",marginBottom:2}}>{e}</div>)}
+        </div>
+      )}
+
+      {preview&&preview.length>0&&(
+        <div style={{marginBottom:12}}>
+          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:8}}>{preview.length} players ready to upload</div>
+          {preview.slice(0,5).map((p,i)=>(
+            <div key={i} className="pcard" style={{marginBottom:6}}>
+              <div className="pav">{p.first_name?.charAt(0)||"?"}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:500}}>{p.first_name} {p.last_name}</div>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>#{p.jersey_number} · {p.position} · {p.player_role||"Player"}</div>
+              </div>
+              {(p.player_role==="Captain"||p.player_role==="Vice Captain")&&<span className="tag tg" style={{fontSize:9}}>{p.player_role}</span>}
+            </div>
+          ))}
+          {preview.length>5&&<div style={{fontSize:12,color:"var(--muted)",textAlign:"center",padding:"6px 0"}}>+{preview.length-5} more players</div>}
+          <button className="btn bp" onClick={uploadPlayers} disabled={uploading} style={{marginTop:8}}>
+            <Icon name="plus" size={14}/>{uploading?"Uploading...":"Upload All "+preview.length+" Players"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── VOTE PAGE ────────────────────────────────────────────────────────────────
@@ -1613,23 +1756,14 @@ function NewsPage({role,announcements,onRefresh,askPin,showToast}) {
 }
 
 // ─── ADMIN PAGE ───────────────────────────────────────────────────────────────
-function AdminPage({local,setLocal,askPin,showToast,testMode,onToggleTestMode}) {
+function AdminPage({local,setLocal,askPin,showToast}) {
   const [tab,setTab]=useState("users");
   return (
     <div className="pw pg">
       <div className="pgb">
         <div className="pgl fu">Organizer</div>
         <div className="pgt fu fu1">Admin <span className="acc">Panel</span></div>
-        {/* Test Mode Toggle */}
-        <div style={{marginTop:14,display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:testMode?"rgba(229,62,62,.15)":"rgba(255,255,255,.05)",border:`1px solid ${testMode?"rgba(229,62,62,.4)":"var(--border)"}`,borderRadius:10}}>
-          <div style={{flex:1}}>
-            <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,color:testMode?"#fc8181":"var(--muted)",letterSpacing:.5}}>🧪 Test Mode</div>
-            <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{testMode?"Active — scores marked as test data, not live":"Off — all scores are live"}</div>
-          </div>
-          <div style={{width:44,height:24,borderRadius:12,background:testMode?"#e53e3e":"var(--border2)",position:"relative",cursor:"pointer",transition:"background .2s",flexShrink:0}} onClick={onToggleTestMode}>
-            <div style={{position:"absolute",top:2,left:testMode?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
-          </div>
-        </div>
+
       </div>
       <div className="tabs">{[{id:"users",lbl:"Users"},{id:"publish",lbl:"Publish"},{id:"overview",lbl:"Overview"}].map(t=><button key={t.id} className={`tab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>{t.lbl}</button>)}</div>
       <div className="inner">
