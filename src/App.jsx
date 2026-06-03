@@ -33,6 +33,12 @@ const ORG_PIN        = "1234";
 const LOCAL_KEY      = "fc_v7_local"; // for votes, viewers, judges, teamAdmins
 const uid            = () => Math.random().toString(36).slice(2,9);
 
+// ─── CONFIRMED DRAW (pre-set, never changes) ──────────────────────────────────
+const CONFIRMED_DRAW = {
+  soccer:  [["Zululand","Durban Central"],["Swacunda","Cape Town"],["Durban South","Mighty"],["Wakanda","Mlungwane"]],
+  netball: [["Zululand","Durban Central"],["Swacunda","Cape Town"],["Durban South","Mighty"],["Wakanda","Mlungwane"]],
+};
+
 // ─── LOCAL-ONLY STATE (judges, team admins, votes — device-specific) ──────────
 function loadLocal() {
   // Clear old localStorage keys from v5/v6 that might cause conflicts
@@ -40,6 +46,28 @@ function loadLocal() {
     try { localStorage.removeItem(k); } catch(e){}
   });
   try { return JSON.parse(localStorage.getItem(LOCAL_KEY)) || {}; } catch(e) { return {}; }
+}
+
+// ─── RESTORE CONFIRMED DRAW TO SUPABASE ───────────────────────────────────────
+async function restoreConfirmedDraw(sport) {
+  const{data:evArr}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
+  const ev=evArr?.[0]; if(!ev) throw new Error("No active event");
+  const eid=ev.id;
+
+  // Delete all existing matches for this sport
+  const{data:existing}=await supabase.from("fc_matches").select("id").eq("event_id",eid).eq("competition",sport);
+  if(existing?.length) for(const m of existing) await supabase.from("fc_matches").delete().eq("id",m.id);
+
+  // Get team IDs for the confirmed draw
+  const draw=CONFIRMED_DRAW[sport];
+  const rows=[];
+  for(const [teamA,teamB] of draw){
+    const{data:tA}=await supabase.from("fc_teams").select("id").eq("event_id",eid).eq("competition",sport).eq("name",teamA).limit(1);
+    const{data:tB}=await supabase.from("fc_teams").select("id").eq("event_id",eid).eq("competition",sport).eq("name",teamB).limit(1);
+    if(tA?.[0]&&tB?.[0]) rows.push({event_id:eid,competition:sport,round:1,round_label:"Quarter Final",team_a_id:tA[0].id,team_b_id:tB[0].id,status:"pending",published:false});
+  }
+  if(rows.length) await supabase.from("fc_matches").insert(rows);
+  await supabase.from("fc_publish_flags").update({published:false,updated_at:new Date().toISOString()}).eq("event_id",eid).eq("competition",sport);
 }
 function saveLocal(data) {
   try { localStorage.setItem(LOCAL_KEY, JSON.stringify(data)); } catch(e) {}
@@ -379,6 +407,9 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 .ssn{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-align:center;}
 .ssp{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:2px;padding:0 6px;margin-top:20px;}
 
+/* TEST MODE BANNER */
+.test-banner{position:fixed;top:0;left:0;right:0;z-index:999;background:#e53e3e;color:#fff;text-align:center;padding:6px 16px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;display:flex;align-items:center;justify-content:center;gap:10px;}
+.test-banner-dismiss{background:rgba(255,255,255,.2);border:none;color:#fff;padding:3px 10px;border-radius:4px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 /* MISC */
 .since{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:4px;background:rgba(240,180,41,.06);border:1px solid var(--gold-border);font-size:11px;color:var(--muted);}
 .jhdr{background:var(--gold-dim);border:1px solid var(--gold-border);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;}
@@ -536,6 +567,14 @@ export default function FoundersCup() {
   const [pinEl,askPin]=usePinDialog();
   const [local,setLocal]=useState(loadLocal);
   const [lastSeen,setLastSeen]=useState(()=>parseInt(localStorage.getItem("fc_last_seen")||"0"));
+  const [testMode,setTestMode]=useState(()=>!!localStorage.getItem("fc_test_mode"));
+
+  const toggleTestMode=()=>{
+    const next=!testMode;
+    setTestMode(next);
+    if(next) localStorage.setItem("fc_test_mode","1");
+    else localStorage.removeItem("fc_test_mode");
+  };
 
   // Realtime: announcements badge counter
   const [announcements,setAnnouncements]=useState([]);
@@ -642,7 +681,13 @@ if(Notification.permission==="granted"&&localStorage.getItem("fc_push_enabled")=
       {toast}{pinEl}
       {adminModal&&<AdminModal local={local} onLogin={u=>{setUser(u);setAdminModal(false);try{sessionStorage.setItem("fc_session",JSON.stringify(u));}catch(e){}showToast(`Welcome, ${u.name}`);if(u.role==="organizer")setTab("admin");else if(u.role==="judge")setTab("choir");else setTab("soccer");}} onClose={()=>setAdminModal(false)}/>}
       <div className="app">
-        <header className="hdr">
+        {testMode&&(
+          <div className="test-banner">
+            🧪 TEST MODE — Scores will not affect live results
+            <button className="test-banner-dismiss" onClick={toggleTestMode}>Exit Test Mode</button>
+          </div>
+        )}
+        <header className="hdr" style={testMode?{marginTop:36}:{}}>
           <div className="hdr-brand">
             <img src={FC_LOGO} className="hdr-logo" alt=""/>
             <div><div className="h-title">Founder's Cup</div><div className="h-sub">Church of the Holy Ghost</div></div>
@@ -653,12 +698,12 @@ if(Notification.permission==="granted"&&localStorage.getItem("fc_push_enabled")=
         </header>
         <div className="app-body">
           {tab==="home"   &&<HomePage announcements={announcements} onChampClick={sport=>{if(sport==="soccer")setTab("soccer");else if(sport==="netball")setTab("netball");else if(sport==="choir")setTab("choir");}}/>}
-          {tab==="soccer" &&<SportPage sport="soccer"  role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
-          {tab==="netball"&&<SportPage sport="netball" role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
+          {tab==="soccer" &&<SportPage sport="soccer"  role={role} user={user} local={local} askPin={askPin} showToast={showToast} testMode={testMode}/>}
+          {tab==="netball"&&<SportPage sport="netball" role={role} user={user} local={local} askPin={askPin} showToast={showToast} testMode={testMode}/>}
           {tab==="choir"  &&<ChoirPage role={role} user={user} local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
           {tab==="vote"   &&<VotePage  role={role} user={user} local={local} setLocal={setLocal} showToast={showToast}/>}
           {tab==="news"   &&<NewsPage  role={role} announcements={announcements} onRefresh={loadAnnouncements} askPin={askPin} showToast={showToast}/>}
-          {tab==="admin"  &&isOrg&&<AdminPage local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
+          {tab==="admin"  &&isOrg&&<AdminPage local={local} setLocal={setLocal} askPin={askPin} showToast={showToast} testMode={testMode} onToggleTestMode={toggleTestMode}/>}
         </div>
         <nav className="nav">
           {navItems.map(n=>(
@@ -754,7 +799,7 @@ function HomePage({announcements, onChampClick}) {
 }
 
 // ─── SPORT PAGE ───────────────────────────────────────────────────────────────
-function SportPage({sport,role,user,local,askPin,showToast}) {
+function SportPage({sport,role,user,local,askPin,showToast,testMode}) {
   const [tab,setTab]=useState("bracket");
   const [teams,setTeams]=useState([]);
   const [matches,setMatches]=useState([]);
@@ -821,9 +866,9 @@ function SportPage({sport,role,user,local,askPin,showToast}) {
       <div className="tabs">{tabs.map(t=><button key={t.id} className={`tab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>{t.lbl}</button>)}</div>
       <div className="inner">
         {loading?<Spinner/>:<>
-          {tab==="bracket" &&<BracketView matches={matches} isOrg={isOrg} published={published}/>}
+          {tab==="bracket" &&<BracketView matches={matches} isOrg={isOrg} published={published} testMode={testMode}/>}
           {tab==="teams"   &&<TeamsView teams={teams} isOrg={isOrg} sport={sport} askPin={askPin} showToast={showToast} onRefresh={load}/>}
-          {tab==="scores"  &&isOrg&&<ScoresView sport={sport} teams={teams} matches={matches} published={published} askPin={askPin} showToast={showToast} onRefresh={load}/>}
+          {tab==="scores"  &&isOrg&&<ScoresView sport={sport} teams={teams} matches={matches} published={published} askPin={askPin} showToast={showToast} onRefresh={load} testMode={testMode}/>}
           {tab==="register"&&(isOrg||isTA)&&<RegisterView sport={sport} teams={teams} role={role} user={user} local={local} askPin={askPin} showToast={showToast} onRefresh={load}/>}
         </>}
       </div>
@@ -831,9 +876,9 @@ function SportPage({sport,role,user,local,askPin,showToast}) {
   );
 }
 
-function BracketView({matches,isOrg,published}) {
+function BracketView({matches,isOrg,published,testMode}) {
   const visible=isOrg?matches:(published?matches:[]);
-  if(!visible.length)return<div className="empty fu"><div className="eti"><Icon name="bracket" size={38} sw={1}/></div><div className="ett">{isOrg?"Generate a bracket to begin.":"Bracket will appear once published."}</div></div>;
+  if(!visible.length)return<div className="empty fu"><div className="eti"><Icon name="bracket" size={38} sw={1}/></div><div className="ett">{isOrg?"The confirmed draw will appear here. Use the Scores tab to enter results.":"Bracket will appear once published."}</div></div>;
   const rounds=[...new Set(visible.map(m=>m.round))].sort((a,b)=>a-b);
   const rL={1:"Quarter Finals",2:"Semi Finals",3:"Final"};
   return (
@@ -851,7 +896,7 @@ function BracketView({matches,isOrg,published}) {
                     <span className={`msc ${s.sc===null?"dim":""}`}>{s.sc??"—"}</span>
                   </div>
                 ))}
-                <div className="mfoot">{m.winner_id?`${m.winner_name} advances`:"Upcoming"}</div>
+                <div className="mfoot">{m.winner_id?`${m.winner_name} advances`:m.status==="test_completed"?"Test result":m.status==="pending"?"Upcoming":"Upcoming"}{m.status==="test_completed"&&" 🧪"}</div>
               </div>
             ))}
           </div>
@@ -891,29 +936,10 @@ function TeamsView({teams,isOrg,sport,askPin,showToast,onRefresh}) {
   );
 }
 
-function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}) {
+function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh,testMode}) {
   const [saving,setSaving]=useState(false);
+  const [advanceMatch,setAdvanceMatch]=useState(null); // match waiting for advance confirmation
   const getTeamName=id=>teams.find(t=>t.id===id)?.name;
-
-  const generate=async()=>{
-    setSaving(true);
-    try{
-      const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
-      if(!ev||!ev.id) throw new Error("No active event");
-      const eid=ev.id;
-      // Delete old matches first
-      await supabase.from("fc_matches").delete().eq("event_id",eid).eq("competition",sport);
-      const sh=[...teams].sort(()=>Math.random()-.5);
-      // Delete ALL existing matches for this sport first to prevent duplicates
-      await supabase.from("fc_matches").delete().eq("event_id",eid).eq("competition",sport);
-      const rows=[];
-      for(let i=0;i<sh.length;i+=2){if(sh[i+1])rows.push({event_id:eid,competition:sport,round:1,team_a_id:sh[i].id,team_b_id:sh[i+1].id,status:"pending",published:false});}
-      const{error:ie}=await supabase.from("fc_matches").insert(rows);
-      if(ie) throw ie;
-      showToast("Bracket generated!");onRefresh();
-    }catch(e){showToast("Error: "+e.message);}
-    setSaving(false);
-  };
 
   const updateScore=async(mid,field,val)=>{
     await supabase.from("fc_matches").update({[field]:parseInt(val)||0}).eq("id",mid);
@@ -924,14 +950,39 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}) 
     setSaving(true);
     try{
       const winner=((m.score_a??0)>=(m.score_b??0))?m.team_a_id:m.team_b_id;
-      await supabase.from("fc_matches").update({winner_id:winner,status:"completed",voting_open:true}).eq("id",m.id);
-      // Advance winner to next round
+      const winnerName=getTeamName(winner)||"Winner";
+      const loserName=getTeamName(winner===m.team_a_id?m.team_b_id:m.team_a_id)||"Loser";
+      // Mark match as complete
+      await supabase.from("fc_matches").update({
+        winner_id:winner,
+        status: testMode?"test_completed":"completed",
+        voting_open:!testMode
+      }).eq("id",m.id);
+      showToast(`${winnerName} wins!${testMode?" (Test)":""}`);
+      // Show advance confirmation dialog
+      setAdvanceMatch({matchId:m.id,winnerId:winner,winnerName,round:m.round,testMode});
+      onRefresh();
+    }catch(e){showToast("Error: "+e.message);}
+    setSaving(false);
+  };
+
+  const advanceWinner=async()=>{
+    if(!advanceMatch)return;
+    const{matchId,winnerId,winnerName,round}=advanceMatch;
+    setSaving(true);
+    try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
-      const nextR=m.round+1;
+      const nextR=round+1;
+      // Check if a final would conflict with expected progression
       const{data:existing}=await supabase.from("fc_matches").select("*").eq("event_id",ev.id).eq("competition",sport).eq("round",nextR).is("team_b_id",null).maybeSingle();
-      if(existing){await supabase.from("fc_matches").update({team_b_id:winner}).eq("id",existing.id);}
-      else{await supabase.from("fc_matches").insert({event_id:ev.id,competition:sport,round:nextR,team_a_id:winner,status:"pending",published:false});}
-      showToast("Confirmed — voting opened!");onRefresh();
+      if(existing){
+        await supabase.from("fc_matches").update({team_b_id:winnerId}).eq("id",existing.id);
+      } else {
+        await supabase.from("fc_matches").insert({event_id:ev.id,competition:sport,round:nextR,team_a_id:winnerId,status:"pending",published:false});
+      }
+      showToast(`${winnerName} advanced to ${nextR===2?"Semi Final":"Final"}!`);
+      setAdvanceMatch(null);
+      onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
   };
@@ -948,8 +999,20 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}) 
 
   return (
     <div>
+      {/* Test mode warning banner */}
+      {testMode&&<div style={{background:"rgba(229,62,62,.15)",border:"1px solid rgba(229,62,62,.4)",borderRadius:8,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:18}}>🧪</span><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,color:"#fc8181",letterSpacing:.5}}>TEST MODE ACTIVE</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Scores are marked as test data and will not affect live results</div></div></div>}
+      {/* Advance confirmation dialog */}
+      {advanceMatch&&(
+        <div style={{background:"var(--gold-dim)",border:"1px solid var(--gold-border)",borderRadius:12,padding:16,marginBottom:14}}>
+          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:800,color:"var(--gold)",marginBottom:6}}>🏆 Advance Winner?</div>
+          <div style={{fontSize:14,marginBottom:14,lineHeight:1.5}}><strong>{advanceMatch.winnerName}</strong> won. Advance to the {advanceMatch.round+1===2?"Semi Final":"Final"}?</div>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn bp bsm" onClick={advanceWinner} disabled={saving}>Yes — Advance</button>
+            <button className="btn bo bsm" onClick={()=>setAdvanceMatch(null)}>Not yet</button>
+          </div>
+        </div>
+      )}
       <div className="brow" style={{marginBottom:16}}>
-        <button className="btn bo bsm" onClick={generate} disabled={saving}><Icon name="bracket" size={13}/> Generate</button>
         <button className={`btn bsm ${published?"bd":"bg"}`} onClick={togglePublish}><Icon name={published?"eyeoff":"publish"} size={13}/>{published?"Unpublish":"Publish"}</button>
       </div>
       {!matches.length&&<div className="empty"><div className="eti"><Icon name="bracket" size={38} sw={1}/></div><div className="ett">Generate a bracket to begin.</div></div>}
@@ -1550,11 +1613,24 @@ function NewsPage({role,announcements,onRefresh,askPin,showToast}) {
 }
 
 // ─── ADMIN PAGE ───────────────────────────────────────────────────────────────
-function AdminPage({local,setLocal,askPin,showToast}) {
+function AdminPage({local,setLocal,askPin,showToast,testMode,onToggleTestMode}) {
   const [tab,setTab]=useState("users");
   return (
     <div className="pw pg">
-      <div className="pgb"><div className="pgl fu">Organizer</div><div className="pgt fu fu1">Admin <span className="acc">Panel</span></div></div>
+      <div className="pgb">
+        <div className="pgl fu">Organizer</div>
+        <div className="pgt fu fu1">Admin <span className="acc">Panel</span></div>
+        {/* Test Mode Toggle */}
+        <div style={{marginTop:14,display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:testMode?"rgba(229,62,62,.15)":"rgba(255,255,255,.05)",border:`1px solid ${testMode?"rgba(229,62,62,.4)":"var(--border)"}`,borderRadius:10}}>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,color:testMode?"#fc8181":"var(--muted)",letterSpacing:.5}}>🧪 Test Mode</div>
+            <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{testMode?"Active — scores marked as test data, not live":"Off — all scores are live"}</div>
+          </div>
+          <div style={{width:44,height:24,borderRadius:12,background:testMode?"#e53e3e":"var(--border2)",position:"relative",cursor:"pointer",transition:"background .2s",flexShrink:0}} onClick={onToggleTestMode}>
+            <div style={{position:"absolute",top:2,left:testMode?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+          </div>
+        </div>
+      </div>
       <div className="tabs">{[{id:"users",lbl:"Users"},{id:"publish",lbl:"Publish"},{id:"overview",lbl:"Overview"}].map(t=><button key={t.id} className={`tab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>{t.lbl}</button>)}</div>
       <div className="inner">
         {tab==="users"   &&<UserMgmt   local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
@@ -1684,17 +1760,21 @@ function Overview({local,askPin,showToast}) {
         const{data:scores}=await supabase.from("fc_choir_scores").select("id").eq("event_id",eid);
         if(scores?.length) for(const s of scores) await supabase.from("fc_choir_scores").delete().eq("id",s.id);
         await supabase.from("fc_events").update({choir_current_group_id:null,choir_publish_teams:false,choir_publish_spectators:false}).eq("id",eid);
+        await supabase.from("fc_publish_flags").update({published:false,updated_at:new Date().toISOString()}).eq("event_id",eid).eq("competition","choir");
+        showToast("Choir reset ✓");
       } else {
-        const{data:matches}=await supabase.from("fc_matches").select("id").eq("event_id",eid).eq("competition",comp);
-        if(matches?.length) for(const m of matches) await supabase.from("fc_matches").delete().eq("id",m.id);
+        // Delete all matches AND players for this sport
+        const{data:existingMatches}=await supabase.from("fc_matches").select("id").eq("event_id",eid).eq("competition",comp);
+        if(existingMatches?.length) for(const m of existingMatches) await supabase.from("fc_matches").delete().eq("id",m.id);
         const{data:teams}=await supabase.from("fc_teams").select("id").eq("event_id",eid).eq("competition",comp);
         if(teams?.length) for(const t of teams){
           const{data:players}=await supabase.from("fc_players").select("id").eq("team_id",t.id);
           if(players?.length) for(const p of players) await supabase.from("fc_players").delete().eq("id",p.id);
         }
+        // Restore the confirmed pre-drawn fixtures
+        await restoreConfirmedDraw(comp);
+        showToast(`${comp} reset ✓ — Confirmed draw restored`);
       }
-      await supabase.from("fc_publish_flags").update({published:false,updated_at:new Date().toISOString()}).eq("event_id",eid).eq("competition",comp==="choir"?"choir":comp);
-      showToast(`${comp} has been reset ✓`);
     }catch(e){console.error("Reset error:",e);showToast("Reset failed: "+e.message);}
   });
   return (
