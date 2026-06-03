@@ -10,18 +10,18 @@ const supabase = createClient(
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const FC_LOGO = "https://static.wixstatic.com/media/4877d6_4bad42a571ec47e982d9b2ec2b4c9a22~mv2.jpeg";
 const TEAM_META = {
-  // Soccer & Netball teams
-  "Durban Central": { logo:"https://static.wixstatic.com/media/4877d6_e293da9b5c374495864511964d6dd921~mv2.jpg" }, // Elephant
-  "Wakanda":        { logo:"https://static.wixstatic.com/media/4877d6_d49e5298427146faa1a5e22be776a2ec~mv2.jpg" }, // Black panther
-  "Cape Town":      { logo:"https://static.wixstatic.com/media/4877d6_9973532eb7e5406682fb091353a111ad~mv2.jpg" }, // Whale
-  "Swacunda":       { logo:"https://static.wixstatic.com/media/4877d6_87f5f6f53d31470eb025f6ea35f8b632~mv2.jpg" }, // Zebra
-  "Mighty":         { logo:"https://static.wixstatic.com/media/4877d6_5d6cb7ce14b54374a5dddb18a4173500~mv2.jpg" }, // Buffalo (Durban West)
-  "Zululand":       { logo:"https://static.wixstatic.com/media/4877d6_0d2034b959604f6fa1e66df62e31f49f~mv2.jpg" }, // Lion
-  "Mlungwane":      { logo:"https://static.wixstatic.com/media/4877d6_0711c82df47f4dc797de9abf523ffc50~mv2.jpg" }, // Mlungwane Limpopo
-  "Durban South":   { logo:"https://static.wixstatic.com/media/4877d6_a01acbcd8df24c9ba467e564706e34f9~mv2.jpg" }, // Yellow cheetah
-  // Choir teams (Othandweni = Wakanda OT = black panther)
-  "Othandweni":     { logo:"https://static.wixstatic.com/media/4877d6_d49e5298427146faa1a5e22be776a2ec~mv2.jpg" }, // Black panther = Wakanda OT
-  "Durban North":   { logo:"https://static.wixstatic.com/media/4877d6_e293da9b5c374495864511964d6dd921~mv2.jpg" }, // Elephant = Durban Central branch
+  // Full official team names
+  "Durban Central United":      { logo:"https://static.wixstatic.com/media/4877d6_e293da9b5c374495864511964d6dd921~mv2.jpg" },
+  "Wakanda OT":                  { logo:"https://static.wixstatic.com/media/4877d6_d49e5298427146faa1a5e22be776a2ec~mv2.jpg" },
+  "Cape Town Team":              { logo:"https://static.wixstatic.com/media/4877d6_9973532eb7e5406682fb091353a111ad~mv2.jpg" },
+  "Swacunda Team":               { logo:"https://static.wixstatic.com/media/4877d6_87f5f6f53d31470eb025f6ea35f8b632~mv2.jpg" },
+  "Mighty Durban West":          { logo:"https://static.wixstatic.com/media/4877d6_5d6cb7ce14b54374a5dddb18a4173500~mv2.jpg" },
+  "Zululand Warriors":           { logo:"https://static.wixstatic.com/media/4877d6_0d2034b959604f6fa1e66df62e31f49f~mv2.jpg" },
+  "Mlungwane FC":                { logo:"https://static.wixstatic.com/media/4877d6_0711c82df47f4dc797de9abf523ffc50~mv2.jpg" },
+  "Durban South Rising Stars":   { logo:"https://static.wixstatic.com/media/4877d6_a01acbcd8df24c9ba467e564706e34f9~mv2.jpg" },
+  // Choir teams
+  "Othandweni":                  { logo:"https://static.wixstatic.com/media/4877d6_d49e5298427146faa1a5e22be776a2ec~mv2.jpg" },
+  "Durban North":                { logo:"https://static.wixstatic.com/media/4877d6_e293da9b5c374495864511964d6dd921~mv2.jpg" },
 };
 const getLogo = name => TEAM_META[name]?.logo || FC_LOGO;
 
@@ -35,8 +35,18 @@ const uid            = () => Math.random().toString(36).slice(2,9);
 
 // ─── CONFIRMED DRAW (pre-set, never changes) ──────────────────────────────────
 const CONFIRMED_DRAW = {
-  soccer:  [["Zululand","Durban Central"],["Swacunda","Cape Town"],["Durban South","Mighty"],["Wakanda","Mlungwane"]],
-  netball: [["Zululand","Durban Central"],["Swacunda","Cape Town"],["Durban South","Mighty"],["Wakanda","Mlungwane"]],
+  soccer:  [
+    ["Cape Town Team","Mighty Durban West"],
+    ["Zululand Warriors","Durban Central United"],
+    ["Wakanda OT","Durban South Rising Stars"],
+    ["Swacunda Team","Mlungwane FC"],
+  ],
+  netball: [
+    ["Zululand Warriors","Durban Central United"],
+    ["Swacunda Team","Cape Town Team"],
+    ["Durban South Rising Stars","Mighty Durban West"],
+    ["Wakanda OT","Mlungwane FC"],
+  ],
 };
 
 // ─── CONFIRMED CHOIR SONG PERFORMANCE ORDERS ─────────────────────────────────
@@ -563,7 +573,11 @@ function PWABanner() {
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function FoundersCup() {
-  const [splash,setSplash]=useState(true);
+  // Skip splash if user already has an active session (refresh/back navigation)
+  const [splash,setSplash]=useState(()=>{
+    try{ return !sessionStorage.getItem("fc_session"); }
+    catch(e){ return true; }
+  });
   const [adminModal,setAdminModal]=useState(false);
   // Restore session from sessionStorage (survives refresh, cleared on tab close)
   const [user,setUser]=useState(()=>{
@@ -584,6 +598,28 @@ export default function FoundersCup() {
   const [unread,setUnread]=useState(0);
 
   useEffect(()=>{injectPWA();},[]);
+
+  // Android back button — intercept to navigate within app instead of exiting
+  useEffect(()=>{
+    const tabHistory = [];
+    const handlePopState = (e) => {
+      e.preventDefault();
+      // If we have tab history, go back within the app
+      if(tabHistory.length > 1){
+        tabHistory.pop(); // remove current
+        const prev = tabHistory[tabHistory.length-1];
+        setTab(prev);
+      } else {
+        // At root — push a new state so next back press doesn't exit
+        window.history.pushState({tab:"home"},"","");
+        setTab("home");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    // Push initial state
+    window.history.pushState({tab:"home"},"","");
+    return()=>window.removeEventListener("popstate", handlePopState);
+  },[]);
 
   // Session timer — auto logout after 8 hours
   const [sessionStart] = useState(()=>Date.now());
@@ -660,6 +696,8 @@ if(Notification.permission==="granted"&&localStorage.getItem("fc_push_enabled")=
 
   const handleTab=t=>{
     setTab(t);
+    // Push browser history so Android back button navigates within app
+    window.history.pushState({tab:t},"","");
     if(t==="news"){const now=Date.now();setLastSeen(now);localStorage.setItem("fc_last_seen",now);setUnread(0);}
   };
 
@@ -747,7 +785,7 @@ function HomePage({announcements, onChampClick}) {
     load();
   },[]);
 
-  const allTeamNames=["Durban Central","Wakanda","Cape Town","Swacunda","Mighty","Zululand","Mlungwane","Durban South"];
+  const allTeamNames=["Durban Central United","Wakanda OT","Cape Town Team","Swacunda Team","Mighty Durban West","Zululand Warriors","Mlungwane FC","Durban South Rising Stars"];
 
   return (
     <div className="pw">
@@ -1780,7 +1818,7 @@ function UserMgmt({local,setLocal,askPin,showToast}) {
   const judges=local.judges||[], admins=local.teamAdmins||[];
   const [jn,setJn]=useState("");const [jp,setJp]=useState("");const [jt,setJt]=useState("");
   const [an,setAn]=useState("");const [ap,setAp]=useState("");const [at,setAt]=useState("Durban Central");
-  const allTeamNames=["Durban Central","Wakanda","Cape Town","Swacunda","Mighty","Zululand","Mlungwane","Durban South"];
+  const allTeamNames=["Durban Central United","Wakanda OT","Cape Town Team","Swacunda Team","Mighty Durban West","Zululand Warriors","Mlungwane FC","Durban South Rising Stars"];
   const addJudge=()=>{if(!jn.trim()||!jp.trim()){showToast("Name & PIN required.");return;}setLocal(l=>({...l,judges:[...(l.judges||[]),{id:uid(),name:jn,pin:jp,tablet:jt}]}));showToast("Judge added!");setJn("");setJp("");setJt("");};
   const rmJudge=id=>askPin("Remove Judge","Enter organizer PIN.",()=>{setLocal(l=>({...l,judges:(l.judges||[]).filter(j=>j.id!==id)}));showToast("Removed.");});
   const addAdmin=()=>{if(!an.trim()||!ap.trim()){showToast("Name & PIN required.");return;}setLocal(l=>({...l,teamAdmins:[...(l.teamAdmins||[]),{id:uid(),name:an,pin:ap,teamId:at}]}));showToast("Team admin added!");setAn("");setAp("");};
