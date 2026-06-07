@@ -528,22 +528,46 @@ function Splash({onDone}) {
 }
 
 // ─── ADMIN LOGIN ──────────────────────────────────────────────────────────────
-function AdminModal({local,onLogin,onClose}) {
+function AdminModal({onLogin,onClose}) {
   const [step,setStep]=useState("role");
   const [role,setRole]=useState(null);
   const [uid2,setUid2]=useState("");
   const [pin,setPin]=useState("");
   const [err,setErr]=useState("");
+  const [users,setUsers]=useState([]);
+  const [loading,setLoading]=useState(false);
+
   const roles=[
     {id:"organizer",label:"Tournament Organizer",desc:"Full control",icon:"trophy"},
     {id:"judge",    label:"Choir Judge",          desc:"Score on your tablet",icon:"mic"},
     {id:"teamadmin",label:"Team Admin",           desc:"Manage your team",icon:"users"},
   ];
-  const users=role==="judge"?(local.judges||[]):(local.teamAdmins||[]);
-  const attempt=()=>{
-    if(role==="organizer"){if(pin!==ORG_PIN){setErr("Incorrect PIN.");return;}onLogin({id:"organizer",name:"Organizer",role:"organizer"});}
-    else{const u=users.find(x=>x.id===uid2&&x.pin===pin);if(!u){setErr("Incorrect PIN.");return;}onLogin({...u,role});}
+
+  // Load judges/admins from Supabase when role selected
+  const loadUsers=async(r)=>{
+    if(r==="organizer") return;
+    setLoading(true);
+    try{
+      const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
+      const eid=ev?.[0]?.id; if(!eid) return;
+      const{data}=await supabase.from("fc_users").select("*").eq("event_id",eid).eq("role",r);
+      setUsers(data||[]);
+    }catch(e){console.warn("Load users error",e);}
+    setLoading(false);
   };
+
+  const attempt=()=>{
+    setErr("");
+    if(role==="organizer"){
+      if(pin!==ORG_PIN){setErr("Incorrect PIN.");return;}
+      onLogin({id:"organizer",name:"Organizer",role:"organizer"});
+    } else {
+      const u=users.find(x=>x.id===uid2);
+      if(!u||u.pin!==pin){setErr("Incorrect PIN.");return;}
+      onLogin({...u,role});
+    }
+  };
+
   return (
     <div className="ov" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="ms">
@@ -551,7 +575,7 @@ function AdminModal({local,onLogin,onClose}) {
         <div className="mt2">Admin Login</div>
         <div className="msub">Select your role</div>
         {step==="role"&&roles.map(r=>(
-          <button key={r.id} onClick={()=>{setRole(r.id);setUid2("");setPin("");setErr("");setStep("pin");}}
+          <button key={r.id} onClick={()=>{setRole(r.id);setUid2("");setPin("");setErr("");setStep("pin");loadUsers(r.id);}}
             style={{width:"100%",padding:"14px 16px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:10,marginBottom:10,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,color:"#fff",transition:"border-color .2s"}}
             onMouseOver={e=>e.currentTarget.style.borderColor="var(--gold)"}
             onMouseOut={e=>e.currentTarget.style.borderColor="var(--border)"}>
@@ -561,14 +585,28 @@ function AdminModal({local,onLogin,onClose}) {
         ))}
         {step==="pin"&&(
           <div>
-            <button onClick={()=>setStep("role")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:11,letterSpacing:1,textTransform:"uppercase",fontFamily:"'Barlow Condensed',sans-serif",marginBottom:16,fontWeight:700}}>← Back</button>
-            {users.length>0&&<div className="fg"><label className="fl">Your Profile</label><select className="fi" value={uid2} onChange={e=>setUid2(e.target.value)}><option value="">— Select —</option>{users.map(u=><option key={u.id} value={u.id}>{u.name}{u.teamId?" — "+u.teamId:""}</option>)}</select></div>}
-            {users.length===0&&role!=="organizer"&&<div style={{fontSize:13,color:"var(--muted)",padding:"12px",background:"rgba(255,255,255,.03)",borderRadius:8,border:"1px solid var(--border)",marginBottom:14,lineHeight:1.5}}>No {role==="judge"?"judges":"team admins"} found on this device. Judge and team admin profiles are set up on the organizer's device. Please use the organizer's device to log in, or ask the organizer to set up profiles on this device.</div>}
+            <button onClick={()=>{setStep("role");setUsers([]);}} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:11,letterSpacing:1,textTransform:"uppercase",fontFamily:"'Barlow Condensed',sans-serif",marginBottom:16,fontWeight:700}}>← Back</button>
+            {loading&&<div style={{textAlign:"center",padding:16,color:"var(--muted)",fontSize:13}}>Loading profiles...</div>}
+            {!loading&&role!=="organizer"&&users.length>0&&(
+              <div className="fg">
+                <label className="fl">Your Name</label>
+                <select className="fi" value={uid2} onChange={e=>setUid2(e.target.value)}>
+                  <option value="">— Select your name —</option>
+                  {users.map(u=><option key={u.id} value={u.id}>{u.name}{u.team_id?" — "+u.team_id:""}</option>)}
+                </select>
+              </div>
+            )}
+            {!loading&&role!=="organizer"&&users.length===0&&(
+              <div style={{fontSize:13,color:"var(--muted)",padding:"12px",background:"rgba(255,255,255,.03)",borderRadius:8,border:"1px solid var(--border)",marginBottom:14,lineHeight:1.6}}>
+                No {role==="judge"?"judges":"team admins"} set up yet. Ask the organizer to add profiles in Admin → Users.
+              </div>
+            )}
             {(role==="organizer"||(uid2&&role!=="organizer"))&&(
-              <>{err&&<div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:10}}>{err}</div>}
-              {err&&<div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:10}}>{err}</div>}
-              <div className="fg"><label className="fl">PIN</label><input className="fi" type="password" placeholder="····" style={{fontSize:24,letterSpacing:10,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif"}} value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&attempt()}/></div>
-              <button className="btn bp" onClick={attempt}><Icon name="check" size={15}/> Enter</button></>
+              <>
+                {err&&<div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:10}}>{err}</div>}
+                <div className="fg"><label className="fl">PIN</label><input className="fi" type="password" placeholder="····" style={{fontSize:24,letterSpacing:10,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif"}} value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&attempt()}/></div>
+                <button className="btn bp" onClick={attempt}><Icon name="check" size={15}/> Enter</button>
+              </>
             )}
             <div style={{marginTop:16,textAlign:"center",fontSize:11,color:"var(--muted)",cursor:"pointer",letterSpacing:1,textTransform:"uppercase",fontFamily:"'Barlow Condensed',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={onClose}><Icon name="eye" size={13}/> Continue as spectator</div>
           </div>
@@ -747,7 +785,7 @@ if(Notification.permission==="granted"&&localStorage.getItem("fc_push_enabled")=
     <>
       <style>{CSS}</style>
       {toast}{pinEl}
-      {adminModal&&<AdminModal local={local} onLogin={u=>{setUser(u);setAdminModal(false);try{sessionStorage.setItem("fc_session",JSON.stringify(u));}catch(e){}showToast(`Welcome, ${u.name}`);if(u.role==="organizer")setTab("admin");else if(u.role==="judge")setTab("choir");else setTab("soccer");}} onClose={()=>setAdminModal(false)}/>}
+      {adminModal&&<AdminModal onLogin={u=>{setUser(u);setAdminModal(false);try{sessionStorage.setItem("fc_session",JSON.stringify(u));}catch(e){}showToast(`Welcome, ${u.name}`);if(u.role==="organizer")setTab("admin");else if(u.role==="judge")setTab("choir");else setTab("soccer");}} onClose={()=>setAdminModal(false)}/>}
       <div className="app">
         <header className="hdr">
           <div className="hdr-brand">
@@ -1946,7 +1984,7 @@ function AdminPage({local,setLocal,askPin,showToast}) {
       </div>
       <div className="tabs">{[{id:"users",lbl:"Users"},{id:"publish",lbl:"Publish"},{id:"overview",lbl:"Overview"}].map(t=><button key={t.id} className={`tab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>{t.lbl}</button>)}</div>
       <div className="inner">
-        {tab==="users"   &&<UserMgmt   local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
+        {tab==="users"   &&<UserMgmt   askPin={askPin} showToast={showToast}/>}
         {tab==="publish" &&<PublishMgmt showToast={showToast}/>}
         {tab==="overview"&&<Overview   local={local} askPin={askPin} showToast={showToast}/>}
       </div>
@@ -1954,16 +1992,67 @@ function AdminPage({local,setLocal,askPin,showToast}) {
   );
 }
 
-function UserMgmt({local,setLocal,askPin,showToast}) {
+function UserMgmt({askPin,showToast}) {
   const [sec,setSec]=useState("judges");
-  const judges=local.judges||[], admins=local.teamAdmins||[];
+  const [judges,setJudges]=useState([]);
+  const [admins,setAdmins]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [eventId,setEventId]=useState(null);
   const [jn,setJn]=useState("");const [jp,setJp]=useState("");const [jt,setJt]=useState("");
-  const [an,setAn]=useState("");const [ap,setAp]=useState("");const [at,setAt]=useState("Durban Central");
+  const [an,setAn]=useState("");const [ap,setAp]=useState("");const [at,setAt]=useState("Durban Central United");
   const allTeamNames=["Durban Central United","Wakanda OT","Cape Town Team","Swacunda Team","Mighty Durban West","Zululand Warriors","Mlungwane FC","Durban South Rising Stars"];
-  const addJudge=()=>{if(!jn.trim()||!jp.trim()){showToast("Name & PIN required.");return;}setLocal(l=>({...l,judges:[...(l.judges||[]),{id:uid(),name:jn,pin:jp,tablet:jt}]}));showToast("Judge added!");setJn("");setJp("");setJt("");};
-  const rmJudge=id=>askPin("Remove Judge","Enter organizer PIN.",()=>{setLocal(l=>({...l,judges:(l.judges||[]).filter(j=>j.id!==id)}));showToast("Removed.");});
-  const addAdmin=()=>{if(!an.trim()||!ap.trim()){showToast("Name & PIN required.");return;}setLocal(l=>({...l,teamAdmins:[...(l.teamAdmins||[]),{id:uid(),name:an,pin:ap,teamId:at}]}));showToast("Team admin added!");setAn("");setAp("");};
-  const rmAdmin=id=>askPin("Remove Team Admin","Enter organizer PIN.",()=>{setLocal(l=>({...l,teamAdmins:(l.teamAdmins||[]).filter(a=>a.id!==id)}));showToast("Removed.");});
+
+  const loadUsers=async()=>{
+    setLoading(true);
+    try{
+      const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
+      const eid=ev?.[0]?.id; if(!eid) return;
+      setEventId(eid);
+      const{data}=await supabase.from("fc_users").select("*").eq("event_id",eid).order("created_at",{ascending:true});
+      setJudges((data||[]).filter(u=>u.role==="judge"));
+      setAdmins((data||[]).filter(u=>u.role==="teamadmin"));
+    }catch(e){console.warn("Load users error",e);}
+    setLoading(false);
+  };
+
+  useEffect(()=>{
+    loadUsers();
+    // Realtime — update all devices when judges/admins change
+    const ch=supabase.channel("fc_users_rt")
+      .on("postgres_changes",{event:"*",schema:"public",table:"fc_users"},()=>loadUsers())
+      .subscribe();
+    return()=>supabase.removeChannel(ch);
+  },[]);
+
+  const addJudge=async()=>{
+    if(!jn.trim()||!jp.trim()){showToast("Name & PIN required.");return;}
+    if(!eventId){showToast("No active event found.");return;}
+    try{
+      await supabase.from("fc_users").insert({event_id:eventId,role:"judge",name:jn.trim(),pin:jp,tablet:jt});
+      showToast("Judge added! Visible on all devices ✓");
+      setJn("");setJp("");setJt("");
+    }catch(e){showToast("Error: "+e.message);}
+  };
+
+  const rmJudge=id=>askPin("Remove Judge","Enter organizer PIN.",async()=>{
+    await supabase.from("fc_users").delete().eq("id",id);
+    showToast("Judge removed.");
+  });
+
+  const addAdmin=async()=>{
+    if(!an.trim()||!ap.trim()){showToast("Name & PIN required.");return;}
+    if(!eventId){showToast("No active event found.");return;}
+    try{
+      await supabase.from("fc_users").insert({event_id:eventId,role:"teamadmin",name:an.trim(),pin:ap,team_id:at});
+      showToast("Team admin added! Visible on all devices ✓");
+      setAn("");setAp("");
+    }catch(e){showToast("Error: "+e.message);}
+  };
+
+  const rmAdmin=id=>askPin("Remove Team Admin","Enter organizer PIN.",async()=>{
+    await supabase.from("fc_users").delete().eq("id",id);
+    showToast("Team admin removed.");
+  });
 
   return (
     <div className="pw">
@@ -1978,8 +2067,9 @@ function UserMgmt({local,setLocal,askPin,showToast}) {
           <div className="fg"><label className="fl">Tablet / Device</label><input className="fi" value={jt} onChange={e=>setJt(e.target.value)} placeholder="e.g. Tablet 1"/></div>
           <button className="btn bp" onClick={addJudge}><Icon name="plus" size={15}/> Add Judge</button>
         </div>
-        {!judges.length&&<div style={{fontSize:13,color:"var(--muted)",textAlign:"center",padding:"16px 0"}}>No judges added yet.</div>}
-        {judges.map((j,i)=>(<div key={j.id} className="urow fu" style={{animationDelay:`${i*.04}s`}}><div className="uav">{j.name.charAt(0)}</div><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{j.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>{j.tablet||"No device"} · PIN: {"·".repeat(j.pin.length)}</div></div><button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4}} onClick={()=>rmJudge(j.id)}><Icon name="trash" size={14}/></button></div>))}</>
+        {loading&&<Spinner size={24}/>}
+        {!loading&&!judges.length&&<div style={{fontSize:13,color:"var(--muted)",textAlign:"center",padding:"16px 0"}}>No judges added yet.</div>}
+        {!loading&&judges.map((j,i)=>(<div key={j.id} className="urow fu" style={{animationDelay:`${i*.04}s`}}><div className="uav">{j.name.charAt(0)}</div><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{j.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>{j.tablet||"No device assigned"} · PIN set ✓</div></div><button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4}} onClick={()=>rmJudge(j.id)}><Icon name="trash" size={14}/></button></div>))}</>
       )}
       {sec==="admins"&&(
         <><div className="card" style={{marginBottom:14}}>
@@ -1988,8 +2078,9 @@ function UserMgmt({local,setLocal,askPin,showToast}) {
           <div className="fg"><label className="fl">Assign Team</label><select className="fi" value={at} onChange={e=>setAt(e.target.value)}>{allTeamNames.map(t=><option key={t}>{t}</option>)}</select></div>
           <button className="btn bp" onClick={addAdmin}><Icon name="plus" size={15}/> Add Team Admin</button>
         </div>
-        {!admins.length&&<div style={{fontSize:13,color:"var(--muted)",textAlign:"center",padding:"16px 0"}}>No team admins yet.</div>}
-        {admins.map((a,i)=>(<div key={a.id} className="urow fu" style={{animationDelay:`${i*.04}s`}}><TL name={a.teamId} size={38}/><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{a.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>{a.teamId} · PIN: {"·".repeat(a.pin.length)}</div></div><button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4}} onClick={()=>rmAdmin(a.id)}><Icon name="trash" size={14}/></button></div>))}</>
+        {loading&&<Spinner size={24}/>}
+        {!loading&&!admins.length&&<div style={{fontSize:13,color:"var(--muted)",textAlign:"center",padding:"16px 0"}}>No team admins yet.</div>}
+        {!loading&&admins.map((a,i)=>(<div key={a.id} className="urow fu" style={{animationDelay:`${i*.04}s`}}><TL name={a.team_id} size={38}/><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{a.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>{a.team_id} · PIN set ✓</div></div><button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4}} onClick={()=>rmAdmin(a.id)}><Icon name="trash" size={14}/></button></div>))}</>
       )}
     </div>
   );
@@ -2064,6 +2155,22 @@ function PublishMgmt({showToast}) {
 }
 
 function Overview({local,askPin,showToast}) {
+  const clearChoirScores=()=>askPin("Clear Choir Scores","This clears ALL judge scores and resets the performing group to the start. Team members and draw are kept. Enter organizer PIN.",async()=>{
+    try{
+      const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0]}));
+      if(!ev?.id) throw new Error("No active event");
+      const{data:scores}=await supabase.from("fc_choir_scores").select("id").eq("event_id",ev.id);
+      if(scores?.length) for(const s of scores) await supabase.from("fc_choir_scores").delete().eq("id",s.id);
+      await supabase.from("fc_events").update({
+        choir_current_group_id:null,
+        choir_publish_teams:false,
+        choir_publish_spectators:false
+      }).eq("id",ev.id);
+      await supabase.from("fc_publish_flags").update({published:false,updated_at:new Date().toISOString()}).eq("event_id",ev.id).eq("competition","choir");
+      showToast("Choir scores cleared ✓ — ready for next test or live event");
+    }catch(e){showToast("Error: "+e.message);}
+  });
+
   const resetComp=comp=>askPin(`Reset ${comp}`,"This permanently deletes ALL data for this competition. Enter organizer PIN.",async()=>{
     try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
@@ -2100,6 +2207,14 @@ function Overview({local,askPin,showToast}) {
       </div>
       <div className="sechd fu fu2"><span className="secht" style={{color:"#fc8181"}}>Danger Zone — PIN Required</span></div>
       <div className="card fu fu2" style={{borderColor:"rgba(229,62,62,.2)"}}>
+        <div style={{fontSize:12,color:"var(--muted)",marginBottom:12,lineHeight:1.6}}>
+          <strong style={{color:"#fc8181"}}>Clear Choir Scores</strong> — wipes all judge scores and resets the performing group back to the start. Use this to clear test data before the event. All other data (teams, members, draw) is preserved.
+        </div>
+        <button className="btn bd bsm" style={{marginBottom:14,width:"100%"}} onClick={clearChoirScores}><Icon name="refresh" size={12}/> Clear Choir Scores Only</button>
+        <div style={{height:1,background:"rgba(229,62,62,.15)",marginBottom:14}}/>
+        <div style={{fontSize:12,color:"var(--muted)",marginBottom:12,lineHeight:1.6}}>
+          <strong style={{color:"#fc8181"}}>Full Reset</strong> — clears all matches, scores and players and restores the confirmed pre-drawn fixtures.
+        </div>
         <div className="brow">
           {["soccer","netball","choir"].map(c=><button key={c} className="btn bd bsm" onClick={()=>resetComp(c)}><Icon name="trash" size={12}/> Reset {c}</button>)}
         </div>
