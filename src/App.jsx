@@ -25,7 +25,34 @@ const TEAM_META = {
 };
 const getLogo = name => TEAM_META[name]?.logo || FC_LOGO;
 
-const DEFAULT_CATS   = ["Harmony","Presentation","Repertoire","Rhythm","Diction"];
+// Official CHG scoring categories with max marks (total = 100)
+const DEFAULT_CATS = [
+  "Sound Quality",
+  "Diction",
+  "Technical Correctness",
+  "Pitch",
+  "Interpretation & Musicianship",
+  "Stage Deportment",
+];
+const CAT_MAX = {
+  "Sound Quality":               10,
+  "Diction":                     10,
+  "Technical Correctness":       10,
+  "Pitch":                       10,
+  "Interpretation & Musicianship": 50,
+  "Stage Deportment":            10,
+};
+const CAT_MAX_DEFAULT = 10; // fallback for custom categories
+const GRADE_LABEL = pct =>
+  pct >= 90 ? "Superior" :
+  pct >= 80 ? "Excellent" :
+  pct >= 70 ? "Very Good" :
+  pct >= 60 ? "Good" : "Needs Improvement";
+const GRADE_COLOR = pct =>
+  pct >= 90 ? "#f0b429" :
+  pct >= 80 ? "#68d391" :
+  pct >= 70 ? "#63b3ed" :
+  pct >= 60 ? "#fff" : "#fc8181";
 const POS_SOCCER     = ["Goalkeeper","Defender","Midfielder","Striker","Captain"];
 const POS_NETBALL    = ["Goal Shooter","Goal Attack","Wing Attack","Centre","Wing Defence","Goal Defence","Goal Keeper","Captain"];
 const VOICES         = ["Soprano","Alto","Tenor","Bass"];
@@ -1210,13 +1237,43 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
   );
 }
 
-function rankGroups(groups,scores,cats) {
-  return groups.map(g=>{
-    const gs=scores.filter(s=>s.group_id===g.id);
-    const catAvgs=cats.map(cat=>{const vals=gs.filter(s=>s.category===cat).map(s=>s.score);return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;});
-    const overall=catAvgs.length?catAvgs.reduce((a,b)=>a+b,0)/catAvgs.length:0;
-    return{group:g,catAvgs,overall,judgeCount:[...new Set(gs.map(s=>s.judge_name))].length};
-  }).sort((a,b)=>b.overall-a.overall);
+function getCatMax(cat) {
+  return CAT_MAX[cat] || CAT_MAX_DEFAULT;
+}
+
+// Calculates weighted score out of 100 per official CHG scoring model
+// Each category has a max (Interpretation=50, others=10)
+// Judge scores are averaged per category, then summed for total out of 100
+function rankGroups(groups, scores, cats) {
+  return groups.map(g => {
+    const gs = scores.filter(s => s.group_id === g.id);
+    const judgeNames = [...new Set(gs.map(s => s.judge_name))];
+    const judgeCount = judgeNames.length;
+
+    // Per category: average all judge scores, then scale to max marks
+    const catAvgs = cats.map(cat => {
+      const catMax = getCatMax(cat);
+      const vals = gs.filter(s => s.category === cat).map(s => s.score);
+      if (!vals.length) return 0;
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      // Score is already on the correct scale (1-10 or 1-50)
+      return avg;
+    });
+
+    // Total = sum of all category averages (out of 100 when using official cats)
+    const totalMax = cats.reduce((a, cat) => a + getCatMax(cat), 0);
+    const totalScore = catAvgs.reduce((a, b) => a + b, 0);
+    const pct = totalMax > 0 ? (totalScore / totalMax) * 100 : 0;
+
+    return {
+      group: g,
+      catAvgs,
+      overall: totalScore,    // raw total out of 100
+      pct,                     // percentage for grading
+      totalMax,
+      judgeCount,
+    };
+  }).sort((a, b) => b.overall - a.overall);
 }
 
 function ChoirLeaderboard({groups,scores,cats,songs,published,publishTeams,publishSpectators,role,spectatorMode,currentGroupId}) {
@@ -1259,13 +1316,24 @@ function ChoirLeaderboard({groups,scores,cats,songs,published,publishTeams,publi
               <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{r.group.branch} · {r.judgeCount} judge{r.judgeCount!==1?"s":""}</div>
             </div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:40,fontWeight:800,color:i===0?"var(--gold)":"#fff",lineHeight:1}}>{r.overall>0?r.overall.toFixed(1):"—"}</div>
-              <div style={{fontSize:10,color:"var(--muted)"}}>avg</div>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:36,fontWeight:800,color:r.overall>0?GRADE_COLOR(r.pct):"#fff",lineHeight:1}}>{r.overall>0?r.overall.toFixed(1):"—"}</div>
+              <div style={{fontSize:9,color:"var(--muted)"}}>/ {r.totalMax||100}</div>
+              {r.overall>0&&<div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,color:GRADE_COLOR(r.pct),letterSpacing:.5,marginTop:2}}>{GRADE_LABEL(r.pct)}</div>}
             </div>
           </div>
-          {cats.map((cat,ci)=>(
-            <div key={cat} className="sbr"><div className="sbl">{cat}</div><div className="sbt"><div className="sbf" style={{width:`${((r.catAvgs[ci]||0)/10)*100}%`}}/></div><div className="sbv">{r.catAvgs[ci]>0?r.catAvgs[ci].toFixed(1):"—"}</div></div>
-          ))}
+          {cats.map((cat,ci)=>{
+            const catMax=getCatMax(cat);
+            const pctBar=Math.min(100,((r.catAvgs[ci]||0)/catMax)*100);
+            return(
+              <div key={cat} className="sbr">
+                <div className="sbl" style={{fontSize:10,width:90}}>{cat}</div>
+                <div className="sbt"><div className="sbf" style={{width:`${pctBar}%`}}/></div>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,color:"var(--gold)",fontWeight:700,width:40,textAlign:"right",flexShrink:0}}>
+                  {r.catAvgs[ci]>0?`${r.catAvgs[ci].toFixed(1)}/${catMax}`:"—"}
+                </div>
+              </div>
+            );
+          })}
           {/* Per-song breakdown when expanded */}
           {expanded===r.group.id&&songs.length>0&&(
             <div style={{marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)"}}>
@@ -1279,7 +1347,18 @@ function ChoirLeaderboard({groups,scores,cats,songs,published,publishTeams,publi
                       <span style={{fontSize:13,fontWeight:600}}>{song}</span>
                       <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:"var(--gold)"}}>{songAvg>0?songAvg.toFixed(1):"—"}</span>
                     </div>
-                    {cats.map(cat=>{const cs=songScores.filter(s=>s.category===cat);const ca=cs.length?cs.reduce((a,b)=>a+b.score,0)/cs.length:0;return<div key={cat} className="sbr" style={{marginBottom:3}}><div className="sbl" style={{fontSize:10}}>{cat}</div><div className="sbt"><div className="sbf" style={{width:`${(ca/10)*100}%`,background:"rgba(240,180,41,.5)"}}/></div><div className="sbv" style={{fontSize:11}}>{ca>0?ca.toFixed(1):"—"}</div></div>;})}
+                    {cats.map(cat=>{
+                      const catMax=getCatMax(cat);
+                      const cs=songScores.filter(s=>s.category===cat);
+                      const ca=cs.length?cs.reduce((a,b)=>a+b.score,0)/cs.length:0;
+                      return(
+                        <div key={cat} className="sbr" style={{marginBottom:3}}>
+                          <div className="sbl" style={{fontSize:10,width:90}}>{cat}</div>
+                          <div className="sbt"><div className="sbf" style={{width:`${Math.min(100,(ca/catMax)*100)}%`,background:"rgba(240,180,41,.5)"}}/></div>
+                          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--gold)",width:46,textAlign:"right",flexShrink:0}}>{ca>0?`${ca.toFixed(1)}/${catMax}`:"—"}</div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -1322,9 +1401,43 @@ function ChoirScore({groups,scores,cats,songs,user,currentGroupId,showToast,onRe
       </div>
       <div className="ccard">
         <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:"var(--gold)",marginBottom:14}}>{songs[songIdx]||"Song "+(songIdx+1)}</div>
-        {cats.map(cat=>{const already=scores.find(sc=>sc.group_id===currentGroup.id&&sc.judge_name===(user?.name||"Judge")&&sc.category===cat&&sc.song_index===songIdx);return(
-          <div key={cat} className="drow"><div className="dlbl">{cat}{already&&<span style={{color:"var(--gold)",marginLeft:6,fontSize:11}}>({already.score})</span>}</div><div className="dots">{[1,2,3,4,5,6,7,8,9,10].map(n=><button key={n} className={`dot ${get(currentGroup.id,cat,songIdx)===n?"on":""}`} onClick={()=>setScore(currentGroup.id,cat,songIdx,n)}>{n}</button>)}</div></div>
-        );})}
+        {cats.map(cat=>{
+          const already=scores.find(sc=>sc.group_id===currentGroup.id&&sc.judge_name===(user?.name||"Judge")&&sc.category===cat&&sc.song_index===songIdx);
+          const catMax=getCatMax(cat);
+          const current=get(currentGroup.id,cat,songIdx);
+          // For high-max categories (like Interpretation=50), use a number input instead of dots
+          const useInput=catMax>10;
+          return(
+            <div key={cat} className="drow" style={{flexDirection:"column",alignItems:"flex-start",gap:6,paddingBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%"}}>
+                <div className="dlbl" style={{fontWeight:600}}>{cat}</div>
+                <div style={{fontSize:11,color:"var(--muted)"}}>Max: {catMax}{already&&<span style={{color:"var(--gold)",marginLeft:8}}>Submitted: {already.score}/{catMax}</span>}</div>
+              </div>
+              {useInput?(
+                <div style={{display:"flex",alignItems:"center",gap:10,width:"100%"}}>
+                  <input
+                    type="number" min={1} max={catMax}
+                    className="fi"
+                    style={{width:90,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"6px 8px"}}
+                    value={current||""}
+                    onChange={e=>{const v=Math.min(catMax,Math.max(1,parseInt(e.target.value)||0));setScore(currentGroup.id,cat,songIdx,v||null);}}
+                    placeholder={`1–${catMax}`}
+                  />
+                  <div style={{flex:1,height:4,background:"rgba(255,255,255,.07)",borderRadius:2}}>
+                    <div style={{height:"100%",background:"var(--gold)",borderRadius:2,transition:"width .3s",width:current?`${(current/catMax)*100}%`:"0%"}}/>
+                  </div>
+                  <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700,color:"var(--gold)",minWidth:32}}>{current||"—"}</div>
+                </div>
+              ):(
+                <div className="dots" style={{justifyContent:"flex-start"}}>
+                  {Array.from({length:catMax},(_,i)=>i+1).map(n=>(
+                    <button key={n} className={`dot ${current===n?"on":""}`} onClick={()=>setScore(currentGroup.id,cat,songIdx,n)}>{n}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
         <div style={{marginTop:13}}><button className="btn bp" onClick={()=>submit(currentGroup.id,songIdx)}><Icon name="check" size={14}/> Submit {songs[songIdx]||"Song "+(songIdx+1)}</button></div>
       </div>
     </div>
@@ -1523,7 +1636,35 @@ function ChoirSettings({cats,songs,spectatorMode,eventId,showToast,onRefresh}) {
 }
 function ChoirAllScores({groups,scores,cats}) {
   const ranked=rankGroups(groups,scores,cats);
-  return <div className="pw"><div className="card">{ranked.map((r,i)=>(<div key={r.group.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 0",borderBottom:"1px solid var(--border)"}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:i<3?"var(--gold)":"var(--muted2)",width:26}}>#{i+1}</div><TL name={r.group.name} size={30}/><div style={{flex:1,marginLeft:6}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700}}>{r.group.name}</div><div style={{fontSize:10,color:"var(--muted)"}}>{r.judgeCount} judges · {cats.map((c,ci)=>`${c.charAt(0)}: ${(r.catAvgs[ci]||0).toFixed(1)}`).join(" · ")}</div></div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)"}}>{r.overall>0?r.overall.toFixed(1):"—"}</div></div>))}</div></div>;
+  return (
+    <div className="pw">
+      <div style={{fontSize:11,color:"var(--muted)",marginBottom:12,lineHeight:1.6}}>
+        Scores calculated per official CHG scoring model. Interpretation & Musicianship = 50pts, all other categories = 10pts each. Total out of 100.
+      </div>
+      <div className="card">
+        {ranked.map((r,i)=>(
+          <div key={r.group.id} style={{padding:"12px 0",borderBottom:"1px solid var(--border)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:i<3?"var(--gold)":"var(--muted2)",width:26}}>#{i+1}</div>
+              <TL name={r.group.name} size={32}/>
+              <div style={{flex:1,marginLeft:4}}>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700}}>{r.group.name}</div>
+                <div style={{fontSize:10,color:"var(--muted)",marginTop:1}}>{r.judgeCount} judge{r.judgeCount!==1?"s":""}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:24,fontWeight:700,color:r.overall>0?GRADE_COLOR(r.pct):"var(--muted)"}}>{r.overall>0?r.overall.toFixed(1):"—"}</div>
+                <div style={{fontSize:9,color:"var(--muted)"}}>/ {r.totalMax||100}</div>
+                {r.overall>0&&<div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,color:GRADE_COLOR(r.pct)}}>{GRADE_LABEL(r.pct)}</div>}
+              </div>
+            </div>
+            <div style={{fontSize:10,color:"var(--muted)",paddingLeft:68}}>
+              {cats.map((c,ci)=>`${c}: ${(r.catAvgs[ci]||0).toFixed(1)}/${getCatMax(c)}`).join("  ·  ")}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 
