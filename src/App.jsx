@@ -1415,8 +1415,9 @@ function ChoirLeaderboard({groups,scores,cats,songs,published,publishTeams,publi
 }
 function ChoirScore({groups,scores,cats,songs,songOrders,user,currentGroupId,showToast,onRefresh}) {
   const [songIdx,setSongIdx]=useState(0);
-  const [openGroupId,setOpenGroupId]=useState(null); // which choir's scoring panel is open
+  const [openGroupId,setOpenGroupId]=useState(null);
   const [local2,setLocal2]=useState({});
+  const [submitting,setSubmitting]=useState(false);
   const judgeName=user?.name||"Judge";
 
   const get=(gid,cat,si)=>local2[`${gid}_${cat}_${si}`]??null;
@@ -1456,7 +1457,6 @@ function ChoirScore({groups,scores,cats,songs,songOrders,user,currentGroupId,sho
     setOpenGroupId(gid);
   };
 
-  const [submitting,setSubmitting]=useState(false);
   const submit=async(gid)=>{
     const missing=cats.filter(c=>!get(gid,c,songIdx));
     if(missing.length){showToast(`Score all categories first (${missing.length} remaining).`);return;}
