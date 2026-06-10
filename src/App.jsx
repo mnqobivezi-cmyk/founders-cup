@@ -304,7 +304,7 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 .pgl{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin-bottom:3px;font-weight:700;font-family:'Barlow Condensed',sans-serif;}
 .pgt{font-family:'Barlow Condensed',sans-serif;font-size:34px;font-weight:900;letter-spacing:2px;text-transform:uppercase;line-height:1;}
 .pgt .acc{color:var(--gold);}
-.pgs{font-size:12px;color:var(--muted);margin-top:5px;}
+.pgs{font-size:13px;color:var(--muted);margin-top:5px;}
 .inner{padding:16px 18px 4px;}
 
 /* HERO */
@@ -386,13 +386,13 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 /* CHOIR */
 .ccard{background:var(--navy3);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;position:relative;}
 .sbr{display:flex;align-items:center;gap:9px;margin-bottom:6px;}
-.sbl{font-size:11px;color:var(--muted);width:84px;flex-shrink:0;font-family:'Barlow Condensed',sans-serif;font-weight:600;}
+.sbl{font-size:12px;color:var(--muted);width:88px;flex-shrink:0;font-family:'Barlow Condensed',sans-serif;font-weight:600;}
 .sbt{flex:1;height:3px;background:rgba(255,255,255,.07);border-radius:2px;}
 .sbf{height:100%;background:var(--gold);border-radius:2px;transition:width .6s ease;}
 .sbv{font-family:'Barlow Condensed',sans-serif;font-size:12px;color:var(--gold);font-weight:700;width:26px;text-align:right;flex-shrink:0;}
 .drow{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);}
 .drow:last-child{border-bottom:none;}
-.dlbl{font-size:13px;flex:1;font-weight:500;}
+.dlbl{font-size:14px;flex:1;font-weight:500;}
 .dots{display:flex;gap:3px;flex-wrap:wrap;justify-content:flex-end;}
 .dot{width:25px;height:25px;border-radius:50%;border:1px solid var(--muted2);background:transparent;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:center;transition:all .15s;}
 .dot:hover{border-color:var(--gold);color:var(--gold);}
@@ -410,7 +410,7 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 .ann{padding:14px 14px 14px 16px;background:var(--navy3);border-left:3px solid var(--gold);border-radius:0 10px 10px 0;margin-bottom:10px;display:flex;gap:10px;}
 .ann.urg{border-left-color:#fc8181;background:rgba(229,62,62,.04);}
 .ann-bw{flex:1;}
-.ann-time{font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:5px;display:flex;align-items:center;gap:6px;}
+.ann-time{font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:5px;display:flex;align-items:center;gap:6px;}
 .ann-body{font-size:14px;line-height:1.6;}
 
 /* PLAYER */
@@ -1368,7 +1368,7 @@ function ChoirLeaderboard({groups,scores,cats,songs,published,publishTeams,publi
             const pctBar=Math.min(100,((r.catAvgs[ci]||0)/catMax)*100);
             return(
               <div key={cat} className="sbr">
-                <div className="sbl" style={{fontSize:10,width:90}}>{cat}</div>
+                <div className="sbl" style={{fontSize:12,width:96}}>{cat}</div>
                 <div className="sbt"><div className="sbf" style={{width:`${pctBar}%`}}/></div>
                 <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,color:"var(--gold)",fontWeight:700,width:40,textAlign:"right",flexShrink:0}}>
                   {r.catAvgs[ci]>0?`${r.catAvgs[ci].toFixed(1)}/${catMax}`:"—"}
@@ -1395,7 +1395,7 @@ function ChoirLeaderboard({groups,scores,cats,songs,published,publishTeams,publi
                       const ca=cs.length?cs.reduce((a,b)=>a+b.score,0)/cs.length:0;
                       return(
                         <div key={cat} className="sbr" style={{marginBottom:3}}>
-                          <div className="sbl" style={{fontSize:10,width:90}}>{cat}</div>
+                          <div className="sbl" style={{fontSize:12,width:96}}>{cat}</div>
                           <div className="sbt"><div className="sbf" style={{width:`${Math.min(100,(ca/catMax)*100)}%`,background:"rgba(240,180,41,.5)"}}/></div>
                           <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--gold)",width:46,textAlign:"right",flexShrink:0}}>{ca>0?`${ca.toFixed(1)}/${catMax}`:"—"}</div>
                         </div>
@@ -1456,26 +1456,47 @@ function ChoirScore({groups,scores,cats,songs,songOrders,user,currentGroupId,sho
     setOpenGroupId(gid);
   };
 
+  const [submitting,setSubmitting]=useState(false);
   const submit=async(gid)=>{
     const missing=cats.filter(c=>!get(gid,c,songIdx));
-    if(missing.length){showToast(`Score all categories (${missing.length} remaining).`);return;}
+    if(missing.length){showToast(`Score all categories first (${missing.length} remaining).`);return;}
+    setSubmitting(true);
     try{
       const{data:evArr}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
       const ev=evArr?.[0];if(!ev)throw new Error("No active event");
-      await Promise.all(cats.map(cat=>supabase.from("fc_choir_scores").upsert({
+      // Submit all categories and collect any database errors
+      const results=await Promise.all(cats.map(cat=>supabase.from("fc_choir_scores").upsert({
         event_id:ev.id,group_id:gid,judge_name:judgeName,category:cat,
         score:get(gid,cat,songIdx),song_index:songIdx
-      },{onConflict:"group_id,judge_name,category,song_index"})));
+      },{onConflict:"group_id,judge_name,category,song_index"}).then(r=>({cat,error:r.error}))));
+      const failed=results.filter(r=>r.error);
+      if(failed.length){
+        console.error("Score save failures:",failed);
+        showToast(`⚠ ${failed.length} score(s) REJECTED by database: ${failed[0].error.message}`);
+        setSubmitting(false);
+        return;
+      }
+      // VERIFY — read back from the database to confirm every category saved
+      const{data:saved}=await supabase.from("fc_choir_scores").select("category")
+        .eq("group_id",gid).eq("judge_name",judgeName).eq("song_index",songIdx);
+      const savedCats=(saved||[]).map(s=>s.category);
+      const notSaved=cats.filter(c=>!savedCats.includes(c));
+      if(notSaved.length){
+        showToast(`⚠ Verification failed — ${notSaved.length} score(s) did not save: ${notSaved.join(", ")}`);
+        setSubmitting(false);
+        return;
+      }
       const g=groups.find(x=>x.id===gid);
-      showToast(`${g?.name||"Choir"} — ${songs[songIdx]||"song"} scores saved ✓`);
+      showToast(`✓ Verified — all ${cats.length} scores saved for ${g?.name||"choir"}`);
       setOpenGroupId(null);
       onRefresh();
     }catch(e){showToast("Error: "+e.message);}
+    setSubmitting(false);
   };
 
   return (
     <div className="pw">
-      <div className="jhdr"><Icon name="mic" size={18} stroke="var(--gold)"/><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700}}>{judgeName}</div><div style={{fontSize:11,color:"var(--muted)"}}>Tap any choir to score or edit · Total out of 100 per song</div></div></div>
+      <div className="jhdr"><Icon name="mic" size={18} stroke="var(--gold)"/><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700}}>{judgeName}</div><div style={{fontSize:12,color:"var(--muted)"}}>Tap any choir to score or edit · Total out of 100 per song</div></div></div>
 
       {/* Song tabs */}
       <div className="tabs" style={{marginBottom:14,padding:0}}>
@@ -1499,7 +1520,7 @@ function ChoirScore({groups,scores,cats,songs,songOrders,user,currentGroupId,sho
               <TL name={g.name} size={38}/>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,display:"flex",alignItems:"center",gap:8}}>{g.name}{isNow&&<span className="tag tg" style={{fontSize:9}}>● Now Performing</span>}</div>
-                <div style={{fontSize:11,color:st.state==="done"?"#68d391":"var(--muted)",marginTop:2}}>
+                <div style={{fontSize:12,color:st.state==="done"?"#68d391":"var(--muted)",marginTop:2}}>
                   {st.state==="done"&&`✓ Scored — ${st.total}/100 · tap to edit`}
                   {st.state==="partial"&&`⚠ Incomplete — ${st.count}/${cats.length} categories`}
                   {st.state==="none"&&"Not scored yet · tap to score"}
@@ -1543,10 +1564,19 @@ function ChoirScore({groups,scores,cats,songs,songOrders,user,currentGroupId,sho
                     </div>
                   );
                 })}
-                <div style={{display:"flex",gap:8,marginTop:12}}>
-                  <button className="btn bp" style={{flex:1}} onClick={()=>submit(g.id)}><Icon name="check" size={14}/> {groupSongStatus(g.id,songIdx).state==="done"?"Update Scores":"Submit Scores"}</button>
-                  <button className="btn bo bsm" style={{width:"auto"}} onClick={()=>setOpenGroupId(null)}>Close</button>
-                </div>
+                {(()=>{
+                  const remaining=cats.filter(c=>!get(g.id,c,songIdx)).length;
+                  const ready=remaining===0;
+                  return(
+                    <div style={{marginTop:12}}>
+                      {!ready&&<div style={{fontSize:12,color:"#fc8181",textAlign:"center",marginBottom:8,fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:.5,fontWeight:700}}>{remaining} categor{remaining===1?"y":"ies"} still unscored — submit unlocks when all are done</div>}
+                      <div style={{display:"flex",gap:8}}>
+                        <button className="btn bp" style={{flex:1,opacity:ready?1:.35,cursor:ready?"pointer":"not-allowed"}} disabled={!ready||submitting} onClick={()=>submit(g.id)}><Icon name="check" size={14}/> {submitting?"Verifying...":groupSongStatus(g.id,songIdx).state==="done"?"Update Scores":"Submit Scores"}</button>
+                        <button className="btn bo bsm" style={{width:"auto"}} onClick={()=>setOpenGroupId(null)}>Close</button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
