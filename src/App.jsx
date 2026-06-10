@@ -19,9 +19,11 @@ const TEAM_META = {
   "Zululand Warriors":           { logo:"https://static.wixstatic.com/media/4877d6_0d2034b959604f6fa1e66df62e31f49f~mv2.jpg" },
   "Mlungwane FC":                { logo:"https://static.wixstatic.com/media/4877d6_0711c82df47f4dc797de9abf523ffc50~mv2.jpg" },
   "Durban South Rising Stars":   { logo:"https://static.wixstatic.com/media/4877d6_a01acbcd8df24c9ba467e564706e34f9~mv2.jpg" },
-  // Choir teams
+  // Choir teams (short names)
   "Othandweni":                  { logo:"https://static.wixstatic.com/media/4877d6_d49e5298427146faa1a5e22be776a2ec~mv2.jpg" },
   "Durban North":                { logo:"https://static.wixstatic.com/media/4877d6_e293da9b5c374495864511964d6dd921~mv2.jpg" },
+  "Zululand":                    { logo:"https://static.wixstatic.com/media/4877d6_0d2034b959604f6fa1e66df62e31f49f~mv2.jpg" },
+  "Durban South":                { logo:"https://static.wixstatic.com/media/4877d6_a01acbcd8df24c9ba467e564706e34f9~mv2.jpg" },
 };
 const getLogo = name => TEAM_META[name]?.logo || FC_LOGO;
 
@@ -1208,6 +1210,7 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
   const [published,setPublished]=useState(false);
   const [cats,setCats]=useState(local.choirCats||DEFAULT_CATS);
   const [songs,setSongs]=useState(["Prescribed Song 1","Prescribed Song 2","Choice Song"]);
+  const [songOrders,setSongOrders]=useState(CHOIR_SONG_ORDERS);
   const [currentGroupId,setCurrentGroupId]=useState(null);
   const [spectatorMode,setSpectatorMode]=useState("hold");
   const [publishTeams,setPublishTeams]=useState(false);
@@ -1217,12 +1220,13 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
 
   const load=useCallback(async()=>{
     try{
-      const{data:evArr2}=await supabase.from("fc_events").select("id,choir_categories,choir_current_group_id,choir_spectator_mode,choir_songs,choir_publish_teams,choir_publish_spectators").eq("is_active",true).limit(1);
+      const{data:evArr2}=await supabase.from("fc_events").select("id,choir_categories,choir_current_group_id,choir_spectator_mode,choir_songs,choir_song_orders,choir_publish_teams,choir_publish_spectators").eq("is_active",true).limit(1);
       const ev=evArr2?.[0];
       if(!ev||!ev.id) throw new Error("No active event");
       const eid=ev.id;
       if(ev.choir_categories)setCats(ev.choir_categories);
       if(ev.choir_songs)setSongs(ev.choir_songs);
+      if(ev.choir_song_orders)setSongOrders(ev.choir_song_orders);
       setCurrentGroupId(ev.choir_current_group_id||null);
       setSpectatorMode(ev.choir_spectator_mode||"hold");
       setPublishTeams(ev.choir_publish_teams||false);
@@ -1266,9 +1270,9 @@ function ChoirPage({role,user,local,setLocal,askPin,showToast}) {
       <div className="inner">
         {tab==="leaderboard"&&<ChoirLeaderboard groups={groups} scores={scores} cats={cats} songs={songs} published={published} publishTeams={publishTeams} publishSpectators={publishSpectators} role={role} spectatorMode={spectatorMode} currentGroupId={currentGroupId}/>}
         {tab==="register"&&(isOrg||isTA)&&<ChoirRegister groups={groups} role={role} user={user} askPin={askPin} showToast={showToast} onRefresh={load}/>}
-        {tab==="score"&&isJudge&&<ChoirScore groups={groups} scores={scores} cats={cats} songs={songs} user={user} currentGroupId={currentGroupId} showToast={showToast} onRefresh={load}/>}
-        {tab==="manage"&&isOrg&&<ChoirManage groups={groups} scores={scores} cats={cats} songs={songs} published={published} publishTeams={publishTeams} publishSpectators={publishSpectators} spectatorMode={spectatorMode} currentGroupId={currentGroupId} eventId={eventId} askPin={askPin} showToast={showToast} onRefresh={load}/>}
-        {tab==="settings"&&isOrg&&<ChoirSettings cats={cats} songs={songs} spectatorMode={spectatorMode} eventId={eventId} showToast={showToast} onRefresh={load}/>}
+        {tab==="score"&&isJudge&&<ChoirScore groups={groups} scores={scores} cats={cats} songs={songs} songOrders={songOrders} user={user} currentGroupId={currentGroupId} showToast={showToast} onRefresh={load}/>}
+        {tab==="manage"&&isOrg&&<ChoirManage groups={groups} scores={scores} cats={cats} songs={songs} songOrders={songOrders} published={published} publishTeams={publishTeams} publishSpectators={publishSpectators} spectatorMode={spectatorMode} currentGroupId={currentGroupId} eventId={eventId} askPin={askPin} showToast={showToast} onRefresh={load}/>}
+        {tab==="settings"&&isOrg&&<ChoirSettings cats={cats} songs={songs} songOrders={songOrders} groups={groups} spectatorMode={spectatorMode} eventId={eventId} showToast={showToast} onRefresh={load}/>}
         {tab==="allscores"&&isOrg&&<ChoirAllScores groups={groups} scores={scores} cats={cats} songs={songs}/>}
       </div>
     </div>
@@ -1409,78 +1413,149 @@ function ChoirLeaderboard({groups,scores,cats,songs,published,publishTeams,publi
     </div>
   );
 }
-function ChoirScore({groups,scores,cats,songs,user,currentGroupId,showToast,onRefresh}) {
-  const [local2,setLocal2]=useState({});
+function ChoirScore({groups,scores,cats,songs,songOrders,user,currentGroupId,showToast,onRefresh}) {
   const [songIdx,setSongIdx]=useState(0);
-  const get=(gid,cat,si)=>local2[`${gid}_${cat}_${si}`]||null;
+  const [openGroupId,setOpenGroupId]=useState(null); // which choir's scoring panel is open
+  const [local2,setLocal2]=useState({});
+  const judgeName=user?.name||"Judge";
+
+  const get=(gid,cat,si)=>local2[`${gid}_${cat}_${si}`]??null;
   const setScore=(gid,cat,si,v)=>setLocal2(s=>({...s,[`${gid}_${cat}_${si}`]:v}));
-  const currentGroup=currentGroupId?groups.find(g=>g.id===currentGroupId):groups[0];
-  if(!currentGroup)return<div className="empty"><div className="eti"><Icon name="mic" size={38} sw={1}/></div><div className="ett">Waiting for organizer to start the choir competition.</div></div>;
-  const submit=async(gid,si)=>{
-    if(!cats.every(c=>get(gid,c,si))){showToast("Score all categories for this song.");return;}
+
+  // Order groups per song using songOrders (editable), fallback to performance_order
+  const orderedGroups=(()=>{
+    const orderNames=songOrders?.[songIdx];
+    if(orderNames&&orderNames.length){
+      const ordered=orderNames.map(n=>groups.find(g=>g.name===n)).filter(Boolean);
+      // Append any groups not in the order list (safety)
+      groups.forEach(g=>{if(!ordered.find(o=>o.id===g.id))ordered.push(g);});
+      return ordered;
+    }
+    return groups;
+  })();
+
+  if(!groups.length)return<div className="empty"><div className="eti"><Icon name="mic" size={38} sw={1}/></div><div className="ett">No choir groups set up yet.</div></div>;
+
+  // Check submission status for a group+song
+  const groupSongStatus=(gid,si)=>{
+    const mine=scores.filter(s=>s.group_id===gid&&s.judge_name===judgeName&&s.song_index===si);
+    const scoredCats=cats.filter(cat=>mine.find(s=>s.category===cat));
+    if(scoredCats.length===0)return{state:"none"};
+    const total=mine.reduce((a,b)=>a+b.score,0);
+    if(scoredCats.length===cats.length)return{state:"done",total};
+    return{state:"partial",total,count:scoredCats.length};
+  };
+
+  // Open a group for scoring — prefill with existing scores
+  const openGroup=(gid)=>{
+    if(openGroupId===gid){setOpenGroupId(null);return;}
+    const mine=scores.filter(s=>s.group_id===gid&&s.judge_name===judgeName&&s.song_index===songIdx);
+    const prefill={};
+    mine.forEach(s=>{prefill[`${gid}_${s.category}_${songIdx}`]=s.score;});
+    setLocal2(l=>({...l,...prefill}));
+    setOpenGroupId(gid);
+  };
+
+  const submit=async(gid)=>{
+    const missing=cats.filter(c=>!get(gid,c,songIdx));
+    if(missing.length){showToast(`Score all categories (${missing.length} remaining).`);return;}
     try{
       const{data:evArr}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
       const ev=evArr?.[0];if(!ev)throw new Error("No active event");
-      await Promise.all(cats.map(cat=>supabase.from("fc_choir_scores").upsert({event_id:ev.id,group_id:gid,judge_name:user?.name||"Judge",category:cat,score:local2[`${gid}_${cat}_${si}`],song_index:si},{onConflict:"group_id,judge_name,category,song_index"})));
-      showToast(`${songs[si]||"Song "+(si+1)} scores submitted!`);
-      if(si<songs.length-1)setSongIdx(si+1);
+      await Promise.all(cats.map(cat=>supabase.from("fc_choir_scores").upsert({
+        event_id:ev.id,group_id:gid,judge_name:judgeName,category:cat,
+        score:get(gid,cat,songIdx),song_index:songIdx
+      },{onConflict:"group_id,judge_name,category,song_index"})));
+      const g=groups.find(x=>x.id===gid);
+      showToast(`${g?.name||"Choir"} — ${songs[songIdx]||"song"} scores saved ✓`);
+      setOpenGroupId(null);
       onRefresh();
     }catch(e){showToast("Error: "+e.message);}
   };
+
   return (
     <div className="pw">
-      <div className="jhdr"><Icon name="mic" size={18} stroke="var(--gold)"/><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700}}>{user?.name||"Judge"}</div><div style={{fontSize:11,color:"var(--muted)"}}>Score 1–10 per category per song</div></div></div>
-      <div className="ccard card-gold" style={{marginBottom:16}}>
-        <div style={{fontSize:10,letterSpacing:3,textTransform:"uppercase",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,marginBottom:8}}>Currently Performing</div>
-        <div style={{display:"flex",alignItems:"center",gap:12}}><TL name={currentGroup.name} size={52}/><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:800}}>{currentGroup.name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{currentGroup.branch} · Performance #{currentGroup.performance_order}</div></div></div>
-      </div>
-      <div className="tabs" style={{marginBottom:16}}>
-        {songs.map((s,i)=>{const done=cats.every(cat=>scores.find(sc=>sc.group_id===currentGroup.id&&sc.judge_name===(user?.name||"Judge")&&sc.category===cat&&sc.song_index===i));return<button key={i} className={`tab ${songIdx===i?"on":""}`} onClick={()=>setSongIdx(i)}>{s}{done?" ✓":""}</button>;})}
-      </div>
-      <div className="ccard">
-        <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,color:"var(--gold)",marginBottom:14}}>{songs[songIdx]||"Song "+(songIdx+1)}</div>
-        {cats.map(cat=>{
-          const already=scores.find(sc=>sc.group_id===currentGroup.id&&sc.judge_name===(user?.name||"Judge")&&sc.category===cat&&sc.song_index===songIdx);
-          const catMax=getCatMax(cat);
-          const current=get(currentGroup.id,cat,songIdx);
-          // For high-max categories (like Interpretation=50), use a number input instead of dots
-          const useInput=catMax>10;
-          return(
-            <div key={cat} className="drow" style={{flexDirection:"column",alignItems:"flex-start",gap:6,paddingBottom:12}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%"}}>
-                <div className="dlbl" style={{fontWeight:600}}>{cat}</div>
-                <div style={{fontSize:11,color:"var(--muted)"}}>Max: {catMax}{already&&<span style={{color:"var(--gold)",marginLeft:8}}>Submitted: {already.score}/{catMax}</span>}</div>
-              </div>
-              {useInput?(
-                <div style={{display:"flex",alignItems:"center",gap:10,width:"100%"}}>
-                  <input
-                    type="number" min={1} max={catMax}
-                    className="fi"
-                    style={{width:90,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"6px 8px"}}
-                    value={current||""}
-                    onChange={e=>{const v=Math.min(catMax,Math.max(1,parseInt(e.target.value)||0));setScore(currentGroup.id,cat,songIdx,v||null);}}
-                    placeholder={`1–${catMax}`}
-                  />
-                  <div style={{flex:1,height:4,background:"rgba(255,255,255,.07)",borderRadius:2}}>
-                    <div style={{height:"100%",background:"var(--gold)",borderRadius:2,transition:"width .3s",width:current?`${(current/catMax)*100}%`:"0%"}}/>
-                  </div>
-                  <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700,color:"var(--gold)",minWidth:32}}>{current||"—"}</div>
-                </div>
-              ):(
-                <div className="dots" style={{justifyContent:"flex-start"}}>
-                  {Array.from({length:catMax},(_,i)=>i+1).map(n=>(
-                    <button key={n} className={`dot ${current===n?"on":""}`} onClick={()=>setScore(currentGroup.id,cat,songIdx,n)}>{n}</button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
+      <div className="jhdr"><Icon name="mic" size={18} stroke="var(--gold)"/><div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700}}>{judgeName}</div><div style={{fontSize:11,color:"var(--muted)"}}>Tap any choir to score or edit · Total out of 100 per song</div></div></div>
+
+      {/* Song tabs */}
+      <div className="tabs" style={{marginBottom:14,padding:0}}>
+        {songs.map((s,i)=>{
+          const allDone=orderedGroups.every(g=>groupSongStatus(g.id,i).state==="done");
+          return<button key={i} className={`tab ${songIdx===i?"on":""}`} onClick={()=>{setSongIdx(i);setOpenGroupId(null);}}>{`Song ${i+1}`}{allDone?" ✓":""}</button>;
         })}
-        <div style={{marginTop:13}}><button className="btn bp" onClick={()=>submit(currentGroup.id,songIdx)}><Icon name="check" size={14}/> Submit {songs[songIdx]||"Song "+(songIdx+1)}</button></div>
       </div>
+      <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,color:"var(--gold)",marginBottom:12,lineHeight:1.4}}>{songs[songIdx]||`Song ${songIdx+1}`}</div>
+
+      {/* Choirs in performance order for this song */}
+      {orderedGroups.map((g,i)=>{
+        const st=groupSongStatus(g.id,songIdx);
+        const isNow=g.id===currentGroupId;
+        const isOpen=openGroupId===g.id;
+        return(
+          <div key={g.id} className={`ccard ${isNow?"card-gold":""}`} style={{marginBottom:10,padding:isOpen?16:12}}>
+            {/* Choir row header — tap to open/close */}
+            <div style={{display:"flex",alignItems:"center",gap:11,cursor:"pointer"}} onClick={()=>openGroup(g.id)}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:17,fontWeight:800,color:isNow?"var(--gold)":"var(--muted2)",width:22,flexShrink:0}}>{i+1}</div>
+              <TL name={g.name} size={38}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,display:"flex",alignItems:"center",gap:8}}>{g.name}{isNow&&<span className="tag tg" style={{fontSize:9}}>● Now Performing</span>}</div>
+                <div style={{fontSize:11,color:st.state==="done"?"#68d391":"var(--muted)",marginTop:2}}>
+                  {st.state==="done"&&`✓ Scored — ${st.total}/100 · tap to edit`}
+                  {st.state==="partial"&&`⚠ Incomplete — ${st.count}/${cats.length} categories`}
+                  {st.state==="none"&&"Not scored yet · tap to score"}
+                </div>
+              </div>
+              <div style={{color:"var(--muted)",transform:isOpen?"rotate(180deg)":"none",transition:"transform .2s"}}><Icon name="publish" size={14}/></div>
+            </div>
+
+            {/* Expanded scoring panel */}
+            {isOpen&&(
+              <div style={{marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)"}}>
+                {cats.map(cat=>{
+                  const catMax=getCatMax(cat);
+                  const current=get(g.id,cat,songIdx);
+                  const useInput=catMax>10;
+                  return(
+                    <div key={cat} className="drow" style={{flexDirection:"column",alignItems:"flex-start",gap:6,paddingBottom:12}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%"}}>
+                        <div className="dlbl" style={{fontWeight:600}}>{cat}</div>
+                        <div style={{fontSize:11,color:"var(--muted)"}}>Max: {catMax}</div>
+                      </div>
+                      {useInput?(
+                        <div style={{display:"flex",alignItems:"center",gap:10,width:"100%"}}>
+                          <input type="number" min={1} max={catMax} className="fi"
+                            style={{width:90,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"6px 8px"}}
+                            value={current||""}
+                            onChange={e=>{const v=Math.min(catMax,Math.max(1,parseInt(e.target.value)||0));setScore(g.id,cat,songIdx,v||null);}}
+                            placeholder={`1–${catMax}`}/>
+                          <div style={{flex:1,height:4,background:"rgba(255,255,255,.07)",borderRadius:2}}>
+                            <div style={{height:"100%",background:"var(--gold)",borderRadius:2,transition:"width .3s",width:current?`${(current/catMax)*100}%`:"0%"}}/>
+                          </div>
+                          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700,color:"var(--gold)",minWidth:32}}>{current||"—"}</div>
+                        </div>
+                      ):(
+                        <div className="dots" style={{justifyContent:"flex-start"}}>
+                          {Array.from({length:catMax},(_,n)=>n+1).map(n=>(
+                            <button key={n} className={`dot ${current===n?"on":""}`} onClick={()=>setScore(g.id,cat,songIdx,n)}>{n}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button className="btn bp" style={{flex:1}} onClick={()=>submit(g.id)}><Icon name="check" size={14}/> {groupSongStatus(g.id,songIdx).state==="done"?"Update Scores":"Submit Scores"}</button>
+                  <button className="btn bo bsm" style={{width:"auto"}} onClick={()=>setOpenGroupId(null)}>Close</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
+
 function ChoirRegister({groups,role,user,askPin,showToast,onRefresh}) {
   const isOrg=role==="organizer";
   const avail=isOrg?groups:groups.filter(g=>g.id===user?.teamId);
@@ -1508,7 +1583,7 @@ function ChoirRegister({groups,role,user,askPin,showToast,onRefresh}) {
   );
 }
 
-function ChoirManage({groups,scores,cats,songs,published,publishTeams,publishSpectators,spectatorMode,currentGroupId,eventId,askPin,showToast,onRefresh}) {
+function ChoirManage({groups,scores,cats,songs,songOrders,published,publishTeams,publishSpectators,spectatorMode,currentGroupId,eventId,askPin,showToast,onRefresh}) {
   const [newCat,setNewCat]=useState("");
   const currentIdx=groups.findIndex(g=>g.id===currentGroupId);
   const currentGroup=groups.find(g=>g.id===currentGroupId);
@@ -1618,10 +1693,10 @@ function ChoirManage({groups,scores,cats,songs,published,publishTeams,publishSpe
 
       {/* Performance order per song */}
       <div className="fsec">Performance Order Per Song</div>
-      {CHOIR_SONGS.map((song,si)=>(
+      {songs.map((song,si)=>(
         <div key={si} className="card" style={{marginBottom:10}}>
           <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:10}}>Song {si+1}: {song}</div>
-          {(CHOIR_SONG_ORDERS[si]||[]).map((name,i)=>{
+          {((songOrders||CHOIR_SONG_ORDERS)[si]||[]).map((name,i)=>{
             const g=groups.find(x=>x.name===name);
             const songScored=g?scores.filter(s=>s.group_id===g.id&&s.song_index===si).length>0:false;
             return(
@@ -1649,13 +1724,40 @@ function ChoirManage({groups,scores,cats,songs,published,publishTeams,publishSpe
   );
 }
 
-function ChoirSettings({cats,songs,spectatorMode,eventId,showToast,onRefresh}) {
+function ChoirSettings({cats,songs,songOrders,groups,spectatorMode,eventId,showToast,onRefresh}) {
   const [localSongs,setLocalSongs]=useState(songs);
+  const [localOrders,setLocalOrders]=useState(songOrders||CHOIR_SONG_ORDERS);
+
+  useEffect(()=>{setLocalSongs(songs);},[songs]);
+  useEffect(()=>{if(songOrders)setLocalOrders(songOrders);},[songOrders]);
+
   const saveSongs=async()=>{
     if(!eventId)return;
     await supabase.from("fc_events").update({choir_songs:localSongs}).eq("id",eventId);
     showToast("Song titles saved!");onRefresh();
   };
+
+  // Move a group up/down within a song's order
+  const move=(si,idx,dir)=>{
+    setLocalOrders(prev=>{
+      const orders={...prev};
+      const list=[...(orders[si]||[])];
+      const ni=idx+dir;
+      if(ni<0||ni>=list.length)return prev;
+      [list[idx],list[ni]]=[list[ni],list[idx]];
+      orders[si]=list;
+      return orders;
+    });
+  };
+
+  const saveOrders=async()=>{
+    if(!eventId)return;
+    try{
+      await supabase.from("fc_events").update({choir_song_orders:localOrders}).eq("id",eventId);
+      showToast("Performance orders saved ✓");onRefresh();
+    }catch(e){showToast("Error: "+e.message);}
+  };
+
   return (
     <div className="pw">
       <div className="fsec" style={{marginTop:0}}>Song Titles</div>
@@ -1669,6 +1771,24 @@ function ChoirSettings({cats,songs,spectatorMode,eventId,showToast,onRefresh}) {
         ))}
         <button className="btn bp" onClick={saveSongs}><Icon name="check" size={14}/> Save Song Titles</button>
       </div>
+
+      <div className="fsec">Performance Order Per Song</div>
+      <div style={{fontSize:12,color:"var(--muted)",marginBottom:12,lineHeight:1.5}}>Use the arrows to reorder which choir performs in each position. The judge scoring screen follows this order. Save when done.</div>
+      {localSongs.map((song,si)=>(
+        <div key={si} className="card" style={{marginBottom:10}}>
+          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:10}}>Song {si+1}: {song}</div>
+          {(localOrders[si]||[]).map((name,i)=>(
+            <div key={name} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:17,fontWeight:800,color:"var(--muted2)",width:24}}>{i+1}</div>
+              <TL name={name} size={30}/>
+              <div style={{flex:1,fontSize:14,fontWeight:600}}>{name}</div>
+              <button className="btn bo bsm" style={{width:36,padding:"6px 0",opacity:i===0?.3:1}} disabled={i===0} onClick={()=>move(si,i,-1)}>↑</button>
+              <button className="btn bo bsm" style={{width:36,padding:"6px 0",opacity:i===(localOrders[si]||[]).length-1?.3:1}} disabled={i===(localOrders[si]||[]).length-1} onClick={()=>move(si,i,1)}>↓</button>
+            </div>
+          ))}
+        </div>
+      ))}
+      <button className="btn bp" onClick={saveOrders}><Icon name="check" size={14}/> Save Performance Orders</button>
     </div>
   );
 }
@@ -2139,15 +2259,74 @@ function PublishMgmt({showToast}) {
       }
     } catch(e){ showToast("Error: "+e.message); }
   };
+  // ── REVIEW PANEL ──
+  const [reviewComp,setReviewComp]=useState(null);
+  const [reviewData,setReviewData]=useState(null);
+  const [reviewLoading,setReviewLoading]=useState(false);
+
+  const openReview=async(comp)=>{
+    if(reviewComp===comp){setReviewComp(null);setReviewData(null);return;}
+    setReviewComp(comp);setReviewLoading(true);setReviewData(null);
+    try{
+      const evId=eid||(await loadFlags());
+      if(comp==="choir"){
+        const[{data:g},{data:s},{data:evd}]=await Promise.all([
+          supabase.from("fc_choir_groups").select("*").eq("event_id",evId).order("performance_order"),
+          supabase.from("fc_choir_scores").select("*").eq("event_id",evId),
+          supabase.from("fc_events").select("choir_categories").eq("id",evId).limit(1),
+        ]);
+        const evCats=evd?.[0]?.choir_categories||DEFAULT_CATS;
+        const ranked=rankGroups(g||[],s||[],evCats);
+        setReviewData({type:"choir",ranked,cats:evCats});
+      } else {
+        const{data:m}=await supabase.from("fc_matches_view").select("*").eq("event_id",evId).eq("competition",comp).order("round");
+        setReviewData({type:"sport",matches:m||[]});
+      }
+    }catch(e){console.warn("Review load error",e);}
+    setReviewLoading(false);
+  };
+
   return (
     <div className="pw">
       <div className="sechd fu"><span className="secht">Publish Controls</span></div>
+      <div style={{fontSize:12,color:"var(--muted)",marginBottom:12,lineHeight:1.5}}>Tap <strong style={{color:"var(--gold)"}}>Review</strong> to preview exactly what spectators will see before publishing. Edit scores in the competition tabs if anything is wrong.</div>
       {["soccer","netball","choir"].map((comp,i)=>(
         <div key={comp} className="card card-sm fu" style={{marginBottom:10,animationDelay:`${i*.05}s`}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
             <div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,textTransform:"capitalize"}}>{comp}</div><div style={{marginTop:4}}><span className={`tag ${flags[comp]?"tgn":"tgm"}`}>{flags[comp]?"Published":"Hidden"}</span></div></div>
-            <button className={`btn bsm ${flags[comp]?"bd":"bg"}`} onClick={()=>toggle(comp)}><Icon name={flags[comp]?"eyeoff":"publish"} size={13}/>{flags[comp]?"Unpublish":"Publish"}</button>
+            <div style={{display:"flex",gap:6}}>
+              <button className="btn bo bsm" onClick={()=>openReview(comp)}><Icon name="eye" size={13}/>{reviewComp===comp?"Close":"Review"}</button>
+              <button className={`btn bsm ${flags[comp]?"bd":"bg"}`} onClick={()=>toggle(comp)}><Icon name={flags[comp]?"eyeoff":"publish"} size={13}/>{flags[comp]?"Unpublish":"Publish"}</button>
+            </div>
           </div>
+
+          {/* Review preview */}
+          {reviewComp===comp&&(
+            <div style={{marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)"}}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:10}}>Spectator Preview — What will go live</div>
+              {reviewLoading&&<Spinner size={22}/>}
+              {!reviewLoading&&reviewData?.type==="sport"&&(
+                reviewData.matches.length?reviewData.matches.map(m=>(
+                  <div key={m.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13}}>
+                    <span className="tag tgm" style={{fontSize:9}}>R{m.round}</span>
+                    <span style={{flex:1}}>{m.team_a_name} <strong style={{color:"var(--gold)"}}>{m.score_a??"—"}</strong> vs <strong style={{color:"var(--gold)"}}>{m.score_b??"—"}</strong> {m.team_b_name||"TBD"}</span>
+                    {m.winner_id?<span className="tag tgn" style={{fontSize:9}}>✓ {m.winner_name}</span>:<span className="tag tgm" style={{fontSize:9}}>Pending</span>}
+                  </div>
+                )):<div style={{fontSize:12,color:"var(--muted)",padding:"8px 0"}}>No matches loaded.</div>
+              )}
+              {!reviewLoading&&reviewData?.type==="choir"&&(
+                reviewData.ranked.length?reviewData.ranked.map((r,ri)=>(
+                  <div key={r.group.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid var(--border)",fontSize:13}}>
+                    <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:800,color:ri<3?"var(--gold)":"var(--muted2)",width:24}}>#{ri+1}</span>
+                    <TL name={r.group.name} size={24}/>
+                    <span style={{flex:1}}>{r.group.name}</span>
+                    <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,color:r.overall>0?GRADE_COLOR(r.pct):"var(--muted)"}}>{r.overall>0?r.overall.toFixed(1)+"/100":"No scores"}</span>
+                  </div>
+                )):<div style={{fontSize:12,color:"var(--muted)",padding:"8px 0"}}>No groups loaded.</div>
+              )}
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:10,lineHeight:1.5}}>To fix an error: go to the {comp==="choir"?"Choir tab (judges edit their scores)":comp+" tab → Scores"} and correct it, then come back and publish.</div>
+            </div>
+          )}
         </div>
       ))}
     </div>
