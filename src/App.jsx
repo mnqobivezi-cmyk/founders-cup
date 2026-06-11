@@ -1098,6 +1098,9 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
   const[saving,setSaving]=useState(false);
   const[phase,setPhase]=useState("pools");
   const[semiSetup,setSemiSetup]=useState(false);
+  const[localScores,setLocalScores]=useState({});
+  const getLocalScore=(mid,field,fallback)=>localScores[mid]?.[field]??fallback;
+  const setLocalScore=(mid,field,val)=>setLocalScores(s=>({...s,[mid]:{...s[mid],[field]:val}}));
 
   const standingsA=calcStandings(matches,"Pool A");
   const standingsB=calcStandings(matches,"Pool B");
@@ -1108,19 +1111,32 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
 
   const getTeamId=name=>teams.find(t=>t.name===name)?.id;
 
-  const updateScore=async(mid,field,val)=>{
-    await supabase.from("fc_matches").update({[field]:parseInt(val)||0}).eq("id",mid);
-    onRefresh();
-  };
-
   const confirmMatch=async(m)=>{
+    const sa=localScores[m.id]?.score_a??m.score_a;
+    const sb=localScores[m.id]?.score_b??m.score_b;
+    if(sa===null||sa===undefined||sa===""||sb===null||sb===undefined||sb===""){showToast("Enter both scores first.");return;}
+    const saNum=parseInt(sa)||0;
+    const sbNum=parseInt(sb)||0;
+    if(saNum===sbNum){
+      showToast("It's a draw — a winner is required. Use extra time or penalties to decide.");
+      return;
+    }
     setSaving(true);
     try{
-      const sa=m.score_a??0,sb=m.score_b??0;
-      const winner=sa>=sb?m.team_a_id:m.team_b_id;
-      const winnerName=sa>=sb?m.team_a_name:m.team_b_name;
-      await supabase.from("fc_matches").update({winner_id:winner,status:"completed"}).eq("id",m.id);
-      showToast(`${winnerName} wins!`);onRefresh();
+      const winner=saNum>sbNum?m.team_a_id:m.team_b_id;
+      const winnerName=saNum>sbNum?m.team_a_name:m.team_b_name;
+      const loserName=saNum>sbNum?m.team_b_name:m.team_a_name;
+      await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",published:true}).eq("id",m.id);
+      showToast(`${winnerName} wins!`);
+      try{
+        const{data:evArr}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
+        const ev=evArr?.[0];
+        if(ev){
+          const rLabel=m.round_label||`Round ${m.round}`;
+          await supabase.from("fc_announcements").insert({event_id:ev.id,body:`🏐 Result — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`,urgent:false,posted_by:"System"});
+        }
+      }catch(e){}
+      onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
   };
@@ -1193,13 +1209,21 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
           <div className="ss">
             <TL name={m.team_a_name} size={36}/>
             <div className="ssn" style={{fontSize:11}}>{m.team_a_name||"TBD"}</div>
-            <input className="fi" type="number" min="0" key={`${m.id}_a_${m.score_a}`} defaultValue={m.score_a??""} onBlur={e=>updateScore(m.id,"score_a",e.target.value)} disabled={done} style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
+            <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
+              value={getLocalScore(m.id,"score_a",m.score_a??"")}
+              onChange={e=>setLocalScore(m.id,"score_a",e.target.value)}
+              disabled={done}
+              style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
           </div>
           <div className="ssp">VS</div>
           <div className="ss">
             <TL name={m.team_b_name} size={36}/>
             <div className="ssn" style={{fontSize:11}}>{m.team_b_name||"TBD"}</div>
-            <input className="fi" type="number" min="0" key={`${m.id}_b_${m.score_b}`} defaultValue={m.score_b??""} onBlur={e=>updateScore(m.id,"score_b",e.target.value)} disabled={done} style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
+            <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
+              value={getLocalScore(m.id,"score_b",m.score_b??"")}
+              onChange={e=>setLocalScore(m.id,"score_b",e.target.value)}
+              disabled={done}
+              style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
           </div>
         </div>
         {!done&&<button className="btn bp" style={{marginTop:4}} onClick={()=>confirmMatch(m)} disabled={saving||m.score_a===null||m.score_b===null}><Icon name="check" size={14}/> Confirm Result</button>}
@@ -1442,14 +1466,20 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
     const sa=localScores[m.id]?.score_a??m.score_a;
     const sb=localScores[m.id]?.score_b??m.score_b;
     if(sa===null||sa===undefined||sa===""||sb===null||sb===undefined||sb===""){showToast("Enter both scores first.");return;}
+    const saNum=parseInt(sa)||0;
+    const sbNum=parseInt(sb)||0;
+    // Block draws — a winner is required to advance
+    if(saNum===sbNum){
+      showToast("It's a draw — a winner is required. Use extra time or penalties to decide.");
+      return;
+    }
     setSaving(true);
     try{
-      const saNum=parseInt(sa)||0;
-      const sbNum=parseInt(sb)||0;
-      const winner=(saNum>=sbNum)?m.team_a_id:m.team_b_id;
+      const winner=saNum>sbNum?m.team_a_id:m.team_b_id;
       const winnerName=getTeamName(winner)||"Winner";
       const loserName=getTeamName(winner===m.team_a_id?m.team_b_id:m.team_a_id)||"opponent";
-      await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",voting_open:true}).eq("id",m.id);
+      // published:true ensures spectator view picks up the result immediately
+      await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",voting_open:true,published:true}).eq("id",m.id);
       showToast(`${winnerName} wins!`);
       try{
         const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0]}));
