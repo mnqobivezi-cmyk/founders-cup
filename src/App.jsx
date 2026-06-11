@@ -646,7 +646,7 @@ export default function FoundersCup(){
     {id:"soccer",lbl:"Soccer",icon:"soccer"},
     {id:"netball",lbl:"Netball",icon:"netball"},
     {id:"choir",lbl:"Choir",icon:"choir"},
-    {id:"vote",lbl:"Vote",icon:"vote"},
+
     {id:"news",lbl:"News",icon:"news",badge:unread},
     ...(isOrg?[{id:"admin",lbl:"Admin",icon:"admin"}]:[]),
   ];
@@ -673,7 +673,6 @@ export default function FoundersCup(){
           {tab==="soccer" &&<SportPage sport="soccer"  role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
           {tab==="netball"&&<SportPage sport="netball" role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
           {tab==="choir"  &&<ChoirPage role={role} user={user} local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
-          {tab==="vote"   &&<VotePage  role={role} user={user} local={local} setLocal={setLocal} showToast={showToast}/>}
           {tab==="news"   &&<NewsPage  role={role} announcements={announcements} onRefresh={loadAnnouncements} askPin={askPin} showToast={showToast}/>}
           {tab==="admin"  &&isOrg&&<AdminPage local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
         </div>
@@ -693,15 +692,18 @@ export default function FoundersCup(){
 
 function HomePage({announcements,onChampClick}){
   const[champions,setChampions]=useState([]);
+  const[latestResult,setLatestResult]=useState(null);
   const[loading,setLoading]=useState(true);
+  const[revealed,setRevealed]=useState({});
+
   useEffect(()=>{
     async function load(){
       try{
         const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
         const eid=ev.id;
         const[{data:sc},{data:nc},{data:cc}]=await Promise.all([
-          supabase.from("fc_matches").select("*,winner:winner_id(name)").eq("event_id",eid).eq("competition","soccer").eq("published",true),
-          supabase.from("fc_matches").select("*,winner:winner_id(name)").eq("event_id",eid).eq("competition","netball").eq("published",true),
+          supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition","soccer").eq("published",true),
+          supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition","netball").eq("published",true),
           supabase.from("fc_choir_leaderboard").select("*").eq("event_id",eid),
         ]);
         const champs=[];
@@ -709,20 +711,79 @@ function HomePage({announcements,onChampClick}){
           if(!matches?.length)return;
           const maxR=Math.max(...matches.map(m=>m.round));
           const f=matches.find(m=>m.round===maxR&&m.winner_id);
-          if(f)champs.push({sport,name:f.winner?.name});
+          if(f)champs.push({sport,name:f.winner_name,scoreA:f.score_a,scoreB:f.score_b,teamA:f.team_a_name,teamB:f.team_b_name,winnerId:f.winner_id,teamAId:f.team_a_id});
         };
         findChamp(sc,"Soccer");findChamp(nc,"Netball");
         const pf=await supabase.from("fc_publish_flags").select("*").eq("event_id",eid).eq("competition","choir").eq("published",true).maybeSingle();
-        if(pf.data&&cc?.length)champs.push({sport:"Choir",name:cc[0].group_name});
+        if(pf.data&&cc?.length)champs.push({sport:"Choir",name:cc[0].group_name,score:cc[0].overall?.toFixed(1)});
         setChampions(champs);
+        // latest result ticker — most recently confirmed published match
+        const allMatches=[...(sc||[]),...(nc||[])].filter(m=>m.winner_id&&m.published);
+        if(allMatches.length){
+          allMatches.sort((a,b)=>new Date(b.updated_at||0)-new Date(a.updated_at||0));
+          setLatestResult(allMatches[0]);
+        }
       }catch(e){console.warn("Home load error",e);}
       setLoading(false);
     }
     load();
+    const ch=supabase.channel("home_rt")
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"fc_matches"},()=>load())
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"fc_publish_flags"},()=>load())
+      .subscribe();
+    return()=>supabase.removeChannel(ch);
   },[]);
+
   const allTeamNames=["Durban Central United","Wakanda OT","Cape Town Team","Swacunda Team","Mighty Durban West","Zululand Warriors","Mlungwane FC","Durban South Rising Stars"];
+
+  const ChampReveal=({c,i})=>{
+    const isChoir=c.sport==="Choir";
+    const aWon=c.winnerId===c.teamAId;
+    return(
+      <div className="champ fu" onClick={()=>onChampClick&&onChampClick(c.sport)} style={{cursor:"pointer",position:"relative",overflow:"hidden"}}>
+        {/* confetti particles */}
+        <div style={{position:"absolute",inset:0,pointerEvents:"none",overflow:"hidden"}}>
+          {Array.from({length:16},(_,pi)=>(
+            <div key={pi} style={{position:"absolute",width:5+Math.random()*4,height:5+Math.random()*4,borderRadius:"50%",background:["#f0b429","#ffd166","#fff","rgba(240,180,41,.5)"][pi%4],left:`${Math.random()*100}%`,animation:`fall ${2+Math.random()*3}s linear ${Math.random()*3}s infinite`,opacity:.6}}/>
+          ))}
+        </div>
+        <img src={getLogo(c.name)} className="clogo" alt={c.name} style={{animation:"hli .7s cubic-bezier(.34,1.56,.64,1) both"}}/>
+        <div className="cl">{c.sport==="Soccer"?"⚽":c.sport==="Netball"?"🏐":"🎵"} {c.sport} Champions</div>
+        <div className="cn" style={{fontSize:32}}>{c.name}</div>
+        {!isChoir&&c.teamA&&(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:14,marginTop:14,position:"relative"}}>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <TL name={c.teamA} size={36}/>
+              <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,color:aWon?"var(--gold)":"rgba(255,255,255,.4)",maxWidth:72,textAlign:"center",lineHeight:1.2}}>{c.teamA}</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:38,fontWeight:900,color:aWon?"var(--gold)":"rgba(255,255,255,.3)",lineHeight:1}}>{c.scoreA}</span>
+                <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,color:"rgba(255,255,255,.3)",fontWeight:700}}>—</span>
+                <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:38,fontWeight:900,color:!aWon?"var(--gold)":"rgba(255,255,255,.3)",lineHeight:1}}>{c.scoreB}</span>
+              </div>
+              <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,letterSpacing:2,textTransform:"uppercase",color:"rgba(255,255,255,.3)",marginTop:2}}>Final</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <TL name={c.teamB} size={36}/>
+              <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,color:!aWon?"var(--gold)":"rgba(255,255,255,.4)",maxWidth:72,textAlign:"center",lineHeight:1.2}}>{c.teamB}</span>
+            </div>
+          </div>
+        )}
+        {isChoir&&c.score&&(
+          <div style={{marginTop:10,position:"relative"}}>
+            <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:42,fontWeight:900,color:"var(--gold)",lineHeight:1}}>{c.score}</div>
+            <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"rgba(240,180,41,.5)",marginTop:4}}>Points · Out of 100</div>
+          </div>
+        )}
+        <div style={{fontSize:10,color:"rgba(240,180,41,.5)",letterSpacing:2,textTransform:"uppercase",fontFamily:"'Barlow Condensed',sans-serif",marginTop:12,position:"relative"}}>Tap to view full results →</div>
+      </div>
+    );
+  };
+
   return(
     <div className="pw">
+      <style>{`@keyframes fall{0%{transform:translateY(-10px) rotate(0deg);opacity:1;}100%{transform:translateY(350px) rotate(360deg);opacity:0;}}`}</style>
       <div className="hero">
         <img src={FC_LOGO} className="hero-logo" alt=""/>
         <div className="hero-title fu fu1">Founder's <em>Cup</em></div>
@@ -730,6 +791,17 @@ function HomePage({announcements,onChampClick}){
       </div>
       <PWABanner/>
       <div className="inner">
+        {/* Live ticker */}
+        {latestResult&&(
+          <div className="fu fu1" style={{background:"rgba(240,180,41,.07)",border:"1px solid rgba(240,180,41,.2)",borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:"var(--gold)",flexShrink:0,animation:"pulse 2s ease-in-out infinite"}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"rgba(240,180,41,.7)",fontWeight:700,marginBottom:2}}>{latestResult.competition?.toUpperCase()} · Latest Result</div>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{latestResult.team_a_name} <span style={{color:"var(--gold)"}}>{latestResult.score_a}</span> — <span style={{color:"var(--gold)"}}>{latestResult.score_b}</span> {latestResult.team_b_name}</div>
+            </div>
+            <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:1,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,flexShrink:0}}>🏆 {latestResult.winner_name}</span>
+          </div>
+        )}
         <div className="sechd fu fu1"><span className="secht">The 8 Teams</span></div>
         <div className="tgrid fu fu2">
           {allTeamNames.map((name,i)=>(
@@ -740,15 +812,8 @@ function HomePage({announcements,onChampClick}){
           ))}
         </div>
         {champions.length>0&&(
-          <><div className="gline fu fu3"><span className="gline-t">Champions</span></div>
-          {champions.map(c=>(
-            <div key={c.sport} className="champ fu" onClick={()=>onChampClick&&onChampClick(c.sport)} style={{cursor:"pointer"}}>
-              <img src={getLogo(c.name)} className="clogo" alt={c.name}/>
-              <div className="cl">{c.sport} Champion</div>
-              <div className="cn">{c.name}</div>
-              <div style={{fontSize:10,color:"rgba(240,180,41,.6)",letterSpacing:2,textTransform:"uppercase",fontFamily:"'Barlow Condensed',sans-serif",marginTop:8}}>Tap to view full results →</div>
-            </div>
-          ))}</>
+          <><div className="gline fu fu3"><span className="gline-t">🏆 Champions</span></div>
+          {champions.map((c,i)=><ChampReveal key={c.sport} c={c} i={i}/>)}</>
         )}
         {announcements.slice(0,2).length>0&&(
           <><div className="sechd fu fu4"><span className="secht">Latest News</span></div>
@@ -1380,6 +1445,12 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
       const winnerName=getTeamName(winner)||"Winner";
       await supabase.from("fc_matches").update({winner_id:winner,status:"completed",voting_open:true}).eq("id",m.id);
       showToast(`${winnerName} wins!`);
+      try{
+        const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0]}));
+        const rLabel=m.round_label||`Round ${m.round}`;
+        const loserName=getTeamName(winner===m.team_a_id?m.team_b_id:m.team_a_id)||"opponent";
+        await supabase.from("fc_announcements").insert({event_id:ev.id,body:`⚽ Result — ${rLabel}: ${winnerName} ${m.score_a??0}–${m.score_b??0} ${loserName}`,urgent:false,posted_by:"System"});
+      }catch(e){}
       setAdvanceMatch({matchId:m.id,winnerId:winner,winnerName,round:m.round});
       onRefresh();
     }catch(e){showToast("Error: "+e.message);}
@@ -2014,70 +2085,6 @@ function SpreadsheetUpload({teamId,sport,onRefresh,showToast}){
           <button className="btn bp" onClick={uploadPlayers} disabled={uploading} style={{marginTop:8}}><Icon name="plus" size={14}/>{uploading?"Uploading...":"Upload All "+preview.length+" Players"}</button>
         </div>
       )}
-    </div>
-  );
-}
-
-function VotePage({role,user,local,setLocal,showToast}){
-  const[matches,setMatches]=useState([]);
-  const[vname,setVname]=useState("");
-  const[vid,setVid]=useState(user?.id||null);
-  const[registered,setRegistered]=useState(!!user);
-  const[picked,setPicked]=useState({});
-  const isPlayer=role==="teamadmin";
-  const weight=isPlayer?3:1;
-  const votes=local.votes||{};
-  useEffect(()=>{
-    async function load(){
-      try{
-        const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
-        const{data:m}=await supabase.from("fc_matches_view").select("*").eq("event_id",ev.id).not("winner_id","is",null).order("round",{ascending:true});
-        setMatches(m||[]);
-      }catch(e){}
-    }
-    load();
-  },[]);
-  const register=()=>{if(!vname.trim()){showToast("Enter your name.");return;}const id=uid();setVid(id);setRegistered(true);setLocal(l=>({...l,voters:{...l.voters,[id]:{name:vname,role,weight}}}));showToast("Registered!");};
-  const castVote=(mid,gender,pid)=>{
-    if(!registered){showToast("Register first.");return;}
-    const key=`${mid}_${gender}`;
-    if(votes[mid]&&Object.values(votes[mid]).some(v=>v.voterId===vid&&v.gender===gender)){showToast("Already voted.");return;}
-    setPicked(p=>({...p,[key]:pid}));
-    setLocal(l=>{const nv={...l.votes};if(!nv[mid])nv[mid]={};nv[mid][`${vid}_${gender}`]={voterId:vid,playerId:pid,gender,weight};return{...l,votes:nv};});
-    showToast(`Vote cast! (${weight}× weight)`);
-  };
-  const tally=(mid,gender)=>{const mv=votes[mid]||{};const t={};Object.values(mv).filter(v=>v.gender===gender).forEach(v=>{t[v.playerId]=(t[v.playerId]||0)+v.weight;});return t;};
-  return(
-    <div className="pw pg">
-      <div className="pgb"><div className="pgl fu">Public Voting</div><div className="pgt fu fu1">MOM / <span className="acc">WOM</span></div><div className="pgs fu fu2">Man & Woman of the Match · Team admin votes count 3×</div></div>
-      <div className="inner">
-        {!matches.length&&<div className="empty fu"><div className="eti"><Icon name="vote" size={38} sw={1}/></div><div className="ett">Voting opens automatically after each confirmed result.</div></div>}
-        {!registered&&matches.length>0&&<div className="card card-gold fu" style={{marginBottom:16}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,marginBottom:4}}>Register to Vote</div><div style={{fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5}}>One vote per award per match.{isPlayer?" Your vote counts 3×.":""}</div><div className="fg"><label className="fl">Your Full Name</label><input className="fi" value={vname} onChange={e=>setVname(e.target.value)} placeholder="e.g. Sipho Dlamini" onKeyDown={e=>e.key==="Enter"&&register()}/></div><button className="btn bp" onClick={register}><Icon name="vote" size={15}/> Register & Vote</button></div>}
-        {registered&&<div className="card card-sm card-gold fu" style={{marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:8}}><Icon name="check" size={14} stroke="var(--gold)"/><span style={{fontSize:13}}>Voting as <strong>{user?.name||vname}</strong></span>{isPlayer&&<span className="tag tg">3× weight</span>}</div></div>}
-        {matches.map((m,mi)=>{
-          const t=tally(m.id,"m"),maxV=Math.max(1,...Object.values(t));
-          return(
-            <div key={m.id} className="vc fu" style={{animationDelay:`${mi*.06}s`}}>
-              <div className="vmh"><div><div style={{fontSize:10,color:"var(--gold)",letterSpacing:2,textTransform:"uppercase",fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,marginBottom:3}}>{m.competition?.toUpperCase()} · Round {m.round}</div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700}}>{m.team_a_name} {m.score_a} — {m.score_b} {m.team_b_name}</div></div><span className="tag tgn"><Icon name="check" size={10}/> Final</span></div>
-              <div style={{padding:14}}><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:2,textTransform:"uppercase",color:"var(--muted)",fontWeight:700,marginBottom:10}}>Vote for Man / Woman of the Match</div>
-              {[m.team_a_name,m.team_b_name].map((tname,ti)=>{
-                const fakePid=`${m.id}_team_${ti}`;
-                const votes_count=t[fakePid]||0;
-                const pct=Math.round((votes_count/maxV)*100);
-                const isMyVote=picked[`${m.id}_m`]===fakePid;
-                return(
-                  <div key={tname} className="vpr" onClick={()=>registered&&castVote(m.id,"m",fakePid)}>
-                    <div className={`vrad ${isMyVote?"on":""}`}>{isMyVote&&<Icon name="check" size={10} stroke="var(--navy)"/>}</div>
-                    <TL name={tname} size={28}/>
-                    <div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{tname}</div><div style={{fontSize:11,color:"var(--muted)"}}>Team vote</div></div>
-                    {votes_count>0&&<div className="vbw"><div className="vbt"><div className="vbf" style={{width:`${pct}%`}}/></div><div className="vbc">{votes_count}</div></div>}
-                  </div>
-                );
-              })}</div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
