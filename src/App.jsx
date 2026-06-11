@@ -891,13 +891,6 @@ function SportPage({sport,role,user,local,askPin,showToast}){
     return()=>{supabase.removeChannel(ch);clearInterval(poll);};
   },[sport,load]);
 
-  let champ=null;
-  if(published&&matches.length){
-    const maxR=Math.max(...matches.map(m=>m.round));
-    const f=matches.find(m=>m.round===maxR&&m.winner_id);
-    champ=f?f.winner_name:null;
-  }
-
   const tabs=[
     {id:"bracket",lbl:isNetball?"Pools & Results":"Bracket"},
     {id:"teams",lbl:"Teams & Players"},
@@ -915,7 +908,6 @@ function SportPage({sport,role,user,local,askPin,showToast}){
           {isNetball?"Pool Stage · Semi Finals · Final · 8 Teams":"Single Elimination · 8 Teams"} · {published?"Live":"Awaiting"}
         </div>
       </div>
-      {champ&&<div className="inner" style={{paddingBottom:0}}><div className="champ fu"><img src={getLogo(champ)} className="clogo" alt={champ}/><div className="cl">{sportLabel} Champion</div><div className="cn">{champ}</div></div></div>}
       <div className="tabs">{tabs.map(t=><button key={t.id} className={`tab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>{t.lbl}</button>)}</div>
       <div className="inner">
         {loading?<Spinner/>:<>
@@ -1393,7 +1385,12 @@ function BracketView({matches,isOrg,published}){
                     <span className={`msc ${s.sc===null?"dim":""}`}>{s.sc??"—"}</span>
                   </div>
                 ))}
-                <div className="mfoot">{m.winner_id?`${m.winner_name} advances`:"Upcoming"}</div>
+                <div className="mfoot">
+                  {m.winner_id
+                    ?(m.round===1?"⚽ "+m.winner_name+" → Semi Final":m.round===2?"⚽ "+m.winner_name+" → Final":"🏆 "+m.winner_name+" — Champions")
+                    :"Upcoming"
+                  }
+                </div>
               </div>
             ))}
           </div>
@@ -1436,29 +1433,42 @@ function TeamsView({teams,isOrg,sport,askPin,showToast,onRefresh}){
 function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
   const[saving,setSaving]=useState(false);
   const[advanceMatch,setAdvanceMatch]=useState(null);
+  // Local score state — keyed by match id. Type freely, nothing saves until Confirm is tapped.
+  const[localScores,setLocalScores]=useState({});
+  const getLocal=(mid,field,fallback)=>localScores[mid]?.[field]??fallback;
+  const setLocal=(mid,field,val)=>setLocalScores(s=>({...s,[mid]:{...s[mid],[field]:val}}));
   const getTeamName=id=>teams.find(t=>t.id===id)?.name;
-  const updateScore=async(mid,field,val)=>{await supabase.from("fc_matches").update({[field]:parseInt(val)||0}).eq("id",mid);onRefresh();};
   const confirm=async(m)=>{
+    const sa=localScores[m.id]?.score_a??m.score_a;
+    const sb=localScores[m.id]?.score_b??m.score_b;
+    if(sa===null||sa===undefined||sa===""||sb===null||sb===undefined||sb===""){showToast("Enter both scores first.");return;}
     setSaving(true);
     try{
-      const winner=((m.score_a??0)>=(m.score_b??0))?m.team_a_id:m.team_b_id;
+      const saNum=parseInt(sa)||0;
+      const sbNum=parseInt(sb)||0;
+      const winner=(saNum>=sbNum)?m.team_a_id:m.team_b_id;
       const winnerName=getTeamName(winner)||"Winner";
-      await supabase.from("fc_matches").update({winner_id:winner,status:"completed",voting_open:true}).eq("id",m.id);
+      const loserName=getTeamName(winner===m.team_a_id?m.team_b_id:m.team_a_id)||"opponent";
+      await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",voting_open:true}).eq("id",m.id);
       showToast(`${winnerName} wins!`);
       try{
         const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0]}));
         const rLabel=m.round_label||`Round ${m.round}`;
-        const loserName=getTeamName(winner===m.team_a_id?m.team_b_id:m.team_a_id)||"opponent";
-        await supabase.from("fc_announcements").insert({event_id:ev.id,body:`⚽ Result — ${rLabel}: ${winnerName} ${m.score_a??0}–${m.score_b??0} ${loserName}`,urgent:false,posted_by:"System"});
+        await supabase.from("fc_announcements").insert({event_id:ev.id,body:`⚽ Result — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`,urgent:false,posted_by:"System"});
       }catch(e){}
       setAdvanceMatch({matchId:m.id,winnerId:winner,winnerName,round:m.round});
       onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
   };
+  const editMatch=mid=>askPin("Edit Result","Enter organizer PIN to reopen this match.",async()=>{
+    await supabase.from("fc_matches").update({winner_id:null,status:"pending",score_a:null,score_b:null}).eq("id",mid);
+    setLocalScores(s=>({...s,[mid]:{score_a:"",score_b:""}}));
+    showToast("Match reopened.");onRefresh();
+  });
   const advanceWinner=async()=>{
     if(!advanceMatch)return;
-    const{matchId,winnerId,winnerName,round}=advanceMatch;
+    const{winnerId,winnerName,round}=advanceMatch;
     setSaving(true);
     try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
@@ -1477,6 +1487,7 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
     showToast(published?"Hidden.":"Published!");onRefresh();
   };
   const removeMatch=mid=>askPin("Remove Match","Enter organizer PIN.",async()=>{await supabase.from("fc_matches").delete().eq("id",mid);showToast("Removed.");onRefresh();});
+  const inputStyle={width:64,height:56,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:30,fontWeight:700,color:"var(--gold)",padding:"0 6px",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(240,180,41,.4)",borderRadius:8};
   return(
     <div>
       {advanceMatch&&(
@@ -1490,28 +1501,69 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
         <button className={`btn bsm ${published?"bd":"bg"}`} onClick={togglePublish}><Icon name={published?"eyeoff":"publish"} size={13}/>{published?"Unpublish":"Publish"}</button>
       </div>
       {!matches.length&&<div className="empty"><div className="eti"><Icon name="bracket" size={38} sw={1}/></div><div className="ett">Generate a bracket to begin.</div></div>}
-      {matches.map((m,i)=>(
-        <div key={m.id} className="card card-sm fu" style={{opacity:m.winner_id?.6:1,marginBottom:12,animationDelay:`${i*.04}s`}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-            <span className="tag tg">Round {m.round}</span>
-            <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              {m.winner_id&&<span className="tag tgn"><Icon name="check" size={10}/> Done</span>}
-              <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:2}} onClick={()=>removeMatch(m.id)}><Icon name="trash" size={14}/></button>
+      {matches.map((m,i)=>{
+        const done=!!m.winner_id;
+        const sa=getLocal(m.id,"score_a",m.score_a??"");
+        const sb=getLocal(m.id,"score_b",m.score_b??"");
+        const ready=sa!==""&&sb!=="";
+        return(
+          <div key={m.id} className="card card-sm fu" style={{opacity:done?.85:1,marginBottom:12,animationDelay:`${i*.04}s`}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+              <span className="tag tg">{m.round_label||`Round ${m.round}`}</span>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                {done&&<span className="tag tgn"><Icon name="check" size={10}/> Done</span>}
+                {done&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
+                <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:2}} onClick={()=>removeMatch(m.id)}><Icon name="trash" size={14}/></button>
+              </div>
             </div>
+            <div className="svs">
+              <div className="ss">
+                <TL name={m.team_a_name} size={40}/>
+                <div className="ssn">{m.team_a_name||"TBD"}</div>
+                <input
+                  className="fi"
+                  type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  min="0"
+                  max="99"
+                  placeholder="0"
+                  value={sa}
+                  onChange={e=>setLocal(m.id,"score_a",e.target.value)}
+                  disabled={done}
+                  style={inputStyle}
+                />
+              </div>
+              <div className="ssp">VS</div>
+              <div className="ss">
+                <TL name={m.team_b_name} size={40}/>
+                <div className="ssn">{m.team_b_name||"TBD"}</div>
+                <input
+                  className="fi"
+                  type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  min="0"
+                  max="99"
+                  placeholder="0"
+                  value={sb}
+                  onChange={e=>setLocal(m.id,"score_b",e.target.value)}
+                  disabled={done}
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+            {!done&&(
+              <button className="btn bp" style={{marginTop:8,opacity:ready?1:.4}} onClick={()=>confirm(m)} disabled={saving||!ready}>
+                <Icon name="check" size={14}/> {ready?"Confirm Result":"Enter Both Scores"}
+              </button>
+            )}
+            {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:6}}>
+              {m.round===1?"⚽ "+m.winner_name+" advances to Semi Final":m.round===2?"⚽ "+m.winner_name+" advances to Final":"🏆 "+m.winner_name+" — Soccer Champions"}
+            </div>}
           </div>
-          <div className="svs">
-            <div className="ss"><TL name={m.team_a_name} size={40}/><div className="ssn">{m.team_a_name||"TBD"}</div>
-              <input className="fi" type="number" min="0" defaultValue={m.score_a??""} onBlur={e=>updateScore(m.id,"score_a",e.target.value)} disabled={!!m.winner_id} style={{width:60,height:48,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:26,fontWeight:700,color:"var(--gold)",padding:"0 6px",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
-            </div>
-            <div className="ssp">VS</div>
-            <div className="ss"><TL name={m.team_b_name} size={40}/><div className="ssn">{m.team_b_name||"TBD"}</div>
-              <input className="fi" type="number" min="0" defaultValue={m.score_b??""} onBlur={e=>updateScore(m.id,"score_b",e.target.value)} disabled={!!m.winner_id} style={{width:60,height:48,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:26,fontWeight:700,color:"var(--gold)",padding:"0 6px",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
-            </div>
-          </div>
-          {!m.winner_id&&<button className="btn bp" onClick={()=>confirm(m)} disabled={saving}><Icon name="check" size={14}/> Confirm & Open Voting</button>}
-          {m.winner_id&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:6}}>🏆 {m.winner_name} advances</div>}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
