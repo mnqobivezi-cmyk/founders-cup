@@ -1905,7 +1905,12 @@ function ChoirManage({groups,scores,cats,songs,songOrders,published,publishTeams
   const startChoir=async()=>{if(!groups.length){showToast("No groups set up.");return;}await updateEvent({choir_current_group_id:groups[0].id});showToast(`Started — ${groups[0].name} is now performing`);};
   const advanceGroup=async()=>{if(!nextGroup){showToast("All groups have performed!");return;}await updateEvent({choir_current_group_id:nextGroup.id});showToast(`Advanced to ${nextGroup.name}`);};
   const togglePublishTeams=async()=>{await updateEvent({choir_publish_teams:!publishTeams});showToast(!publishTeams?"Results published to choir teams!":"Hidden from teams.");};
-  const togglePublishSpectators=async()=>{await updateEvent({choir_publish_spectators:!publishSpectators});showToast(!publishSpectators?"Leaderboard published to spectators!":"Hidden from spectators.");};
+  const togglePublishSpectators=async()=>{
+    await updateEvent({choir_publish_spectators:!publishSpectators});
+    if(!eventId)return;
+    await supabase.from("fc_publish_flags").update({published:!publishSpectators,updated_at:new Date().toISOString()}).eq("event_id",eventId).eq("competition","choir");
+    showToast(!publishSpectators?"Leaderboard published to spectators!":"Hidden from spectators.");
+  };
   const toggleSpectatorMode=async()=>{const next=spectatorMode==="hold"?"live":"hold";await updateEvent({choir_spectator_mode:next});showToast(next==="live"?"Spectators now see live scores":"Scores hidden until you publish");};
   const addCat=async()=>{
     if(!newCat.trim())return;
@@ -2248,9 +2253,13 @@ function PublishMgmt({showToast}){
     try{
       const evId=eid||(await loadFlags());
       if(!evId)throw new Error("No active event ID");
-      await supabase.from("fc_publish_flags").update({published:!flags[comp],updated_at:new Date().toISOString()}).eq("event_id",evId).eq("competition",comp);
-      const compLabel=comp.charAt(0).toUpperCase()+comp.slice(1);
       const isPublishing=!flags[comp];
+      await supabase.from("fc_publish_flags").update({published:isPublishing,updated_at:new Date().toISOString()}).eq("event_id",evId).eq("competition",comp);
+      // Choir uses a separate field on fc_events — keep them in sync
+      if(comp==="choir"){
+        await supabase.from("fc_events").update({choir_publish_spectators:isPublishing}).eq("id",evId);
+      }
+      const compLabel=comp.charAt(0).toUpperCase()+comp.slice(1);
       showToast(isPublishing?`${compLabel} published to all devices!`:`${compLabel} hidden.`);
       if(isPublishing){
         try{
