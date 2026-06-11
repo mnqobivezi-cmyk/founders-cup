@@ -812,10 +812,12 @@ function HomePage({announcements,onChampClick}){
           supabase.from("fc_choir_leaderboard").select("*").eq("event_id",eid).order("overall",{ascending:false}),
         ]);
         const champs=[];
+        const FINAL_ROUND={soccer:3,netball:8};
         const findChamp=(matches,sport)=>{
           if(!matches?.length)return;
-          const maxR=Math.max(...matches.map(m=>m.round));
-          const f=matches.find(m=>m.round===maxR&&m.winner_id);
+          const finalR=FINAL_ROUND[sport]||3;
+          // Only show champion card if the Final match is confirmed
+          const f=matches.find(m=>m.round===finalR&&m.winner_id);
           if(f)champs.push({sport,name:f.winner_name,scoreA:f.score_a,scoreB:f.score_b,teamA:f.team_a_name,teamB:f.team_b_name,winnerId:f.winner_id,teamAId:f.team_a_id});
         };
         findChamp(sc,"Soccer");findChamp(nc,"Netball");
@@ -903,17 +905,6 @@ function HomePage({announcements,onChampClick}){
       </div>
       <PWABanner/>
       <div className="inner">
-        {/* Live ticker */}
-        {latestResult&&(
-          <div className="fu fu1" style={{background:"rgba(240,180,41,.07)",border:"1px solid rgba(240,180,41,.2)",borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:8,height:8,borderRadius:"50%",background:"var(--gold)",flexShrink:0,animation:"pulse 2s ease-in-out infinite"}}/>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"rgba(240,180,41,.7)",fontWeight:700,marginBottom:2}}>{latestResult.competition?.toUpperCase()} · Latest Result</div>
-              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{latestResult.team_a_name} <span style={{color:"var(--gold)"}}>{latestResult.score_a}</span> — <span style={{color:"var(--gold)"}}>{latestResult.score_b}</span> {latestResult.team_b_name}</div>
-            </div>
-            <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:1,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,flexShrink:0}}>🏆 {latestResult.winner_name}</span>
-          </div>
-        )}
         <div className="sechd fu fu1"><span className="secht">The 8 Teams</span></div>
         <div className="tgrid fu fu2">
           {allTeamNames.map((name,i)=>(
@@ -1535,7 +1526,7 @@ function ManualSemiSetup({teams,standingsA,standingsB,onConfirm,onCancel}){
 // ── BRACKET VIEW (soccer) ─────────────────────────────────────────────────────
 function BracketView({matches,isOrg,published}){
   const visible=isOrg?matches:(published?matches:[]);
-  if(!visible.length)return<div className="empty fu"><div className="eti"><Icon name="bracket" size={38} sw={1}/></div><div className="ett">{isOrg?"The confirmed draw will appear here. Use the Scores tab to enter results.":"Bracket will appear once published."}</div></div>;
+  if(!visible.length)return<div className="empty fu"><div className="eti"><Icon name="bracket" size={38} sw={1}/></div><div className="ett">{isOrg?"The confirmed draw will appear here. Use the Scores tab to enter results.":"Bracket will appear once published by the organizer."}</div></div>;
   const rounds=[...new Set(visible.map(m=>m.round))].sort((a,b)=>a-b);
   const rL={1:"Quarter Finals",2:"Semi Finals",3:"Final"};
   return(
