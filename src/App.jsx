@@ -298,7 +298,7 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 .tgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;}
 .tgi{display:flex;flex-direction:column;align-items:center;gap:6px;}
 .tgi-logo{width:54px;height:54px;border-radius:50%;object-fit:cover;border:2px solid var(--border2);}
-.tgi-name{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;text-align:center;line-height:1.2;}
+.tgi-name{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-align:center;line-height:1.2;}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px 16px;border-radius:8px;border:none;font-family:'Barlow',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .18s;width:100%;letter-spacing:.5px;text-transform:uppercase;}
 .btn:active{transform:scale(.97);}
 .bp{background:var(--gold);color:var(--navy);}
@@ -690,11 +690,116 @@ export default function FoundersCup(){
   );
 }
 
+function BranchPage({name,onBack}){
+  const[sport,setSport]=useState(null);
+  const[players,setPlayers]=useState([]);
+  const[choirMembers,setChoirMembers]=useState([]);
+  const[loading,setLoading]=useState(false);
+
+  const loadSport=async(s)=>{
+    setSport(s);setLoading(true);
+    try{
+      const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0]}));
+      if(s==="choir"){
+        const{data:groups}=await supabase.from("fc_choir_groups").select("*,fc_choir_members(*)").eq("event_id",ev.id).eq("name",name);
+        if(groups?.length)setChoirMembers(groups[0].fc_choir_members||[]);
+        else setChoirMembers([]);
+      } else {
+        const{data:team}=await supabase.from("fc_teams").select("*,fc_players(*)").eq("event_id",ev.id).eq("competition",s).eq("name",name).maybeSingle();
+        setPlayers(team?.fc_players||[]);
+      }
+    }catch(e){console.warn("BranchPage load error",e);}
+    setLoading(false);
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"var(--navy)",zIndex:150,overflowY:"auto",animation:"pw .3s ease"}}>
+      {/* Header */}
+      <div style={{background:"rgba(13,27,62,.97)",borderBottom:"2px solid var(--gold)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:0,zIndex:10}}>
+        <button onClick={sport?()=>{setSport(null);setPlayers([]);setChoirMembers([]);}:onBack} style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:700,letterSpacing:1,textTransform:"uppercase",padding:4}}>
+          <Icon name="x" size={16}/> {sport?"Back":"Close"}
+        </button>
+        <TL name={name} size={34}/>
+        <div>
+          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:800,color:"#fff"}}>{name}</div>
+          {sport&&<div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",marginTop:1}}>{sport.charAt(0).toUpperCase()+sport.slice(1)}</div>}
+        </div>
+      </div>
+
+      <div style={{padding:"20px 16px"}}>
+        {!sport&&(
+          <>
+            <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:3,textTransform:"uppercase",color:"var(--muted)",fontWeight:700,marginBottom:14}}>Select a category</div>
+            {[{id:"soccer",label:"Soccer",icon:"soccer",desc:"Players & Squad"},{id:"netball",label:"Netball",icon:"netball",desc:"Players & Squad"},{id:"choir",label:"Choir",icon:"choir",desc:"Choir Members"}].map(c=>(
+              <button key={c.id} onClick={()=>loadSport(c.id)} style={{width:"100%",padding:"14px 16px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:10,marginBottom:10,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,color:"#fff",transition:"border-color .2s"}}
+                onMouseOver={e=>e.currentTarget.style.borderColor="var(--gold)"}
+                onMouseOut={e=>e.currentTarget.style.borderColor="var(--border)"}>
+                <div style={{width:40,height:40,borderRadius:9,background:"var(--gold-dim)",border:"1px solid var(--gold-border)",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--gold)"}}><Icon name={c.icon} size={18}/></div>
+                <div><div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700,textTransform:"uppercase"}}>{c.label}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{c.desc}</div></div>
+                <div style={{marginLeft:"auto",color:"var(--muted)"}}><Icon name="publish" size={14}/></div>
+              </button>
+            ))}
+          </>
+        )}
+        {sport&&loading&&<Spinner/>}
+        {sport==="choir"&&!loading&&(
+          choirMembers.length?choirMembers.map(m=>(
+            <div key={m.id} className="pcard">
+              <div className="pav">{m.first_name?.charAt(0)||"?"}</div>
+              <div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{m.first_name} {m.last_name}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>{m.singing_voice} · {m.choir_role}</div></div>
+              <span className="tag tg" style={{fontSize:9}}>{m.singing_voice?.charAt(0)||"?"}</span>
+            </div>
+          )):<div className="empty"><div className="eti"><Icon name="mic" size={32} sw={1}/></div><div className="ett">No choir members registered yet.</div></div>
+        )}
+        {(sport==="soccer"||sport==="netball")&&!loading&&(
+          players.length?players.map(p=>(
+            <div key={p.id} className="pcard">
+              <div className="pav">{(p.first_name||p.name||"?").charAt(0)}</div>
+              <div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{p.first_name||p.name} {p.last_name||""}</div><div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>#{p.jersey_number} · {p.position} · {p.age_group}</div></div>
+              {p.player_role==="Captain"&&<span className="tag tg" style={{fontSize:9}}>C</span>}
+            </div>
+          )):<div className="empty"><div className="eti"><Icon name="users" size={32} sw={1}/></div><div className="ett">No players registered yet.</div></div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ANNOUNCEMENT CATEGORY HELPER ─────────────────────────────────────────────
+function annCategory(body=""){
+  const b=body.toLowerCase();
+  if(b.includes("⚽")||b.includes("soccer"))return{icon:"soccer",color:"#63b3ed",label:"Soccer",bg:"rgba(99,179,237,.08)",border:"rgba(99,179,237,.25)"};
+  if(b.includes("🏐")||b.includes("netball"))return{icon:"netball",color:"#68d391",label:"Netball",bg:"rgba(104,211,145,.08)",border:"rgba(104,211,145,.25)"};
+  if(b.includes("🎵")||b.includes("choir"))return{icon:"choir",color:"#f6ad55",label:"Choir",bg:"rgba(246,173,85,.08)",border:"rgba(246,173,85,.25)"};
+  return{icon:"news",color:"var(--gold)",label:"News",bg:"rgba(240,180,41,.06)",border:"rgba(240,180,41,.2)"};
+}
+
+function AnnCard({a,isOrg,onRemove}){
+  const cat=annCategory(a.body);
+  return(
+    <div style={{padding:"12px 14px",background:a.urgent?"rgba(229,62,62,.06)":cat.bg,border:`1px solid ${a.urgent?"rgba(229,62,62,.3)":cat.border}`,borderRadius:10,marginBottom:10,display:"flex",gap:10}}>
+      <div style={{width:30,height:30,borderRadius:8,background:a.urgent?"rgba(229,62,62,.15)":cat.bg,border:`1px solid ${a.urgent?"rgba(229,62,62,.3)":cat.border}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:a.urgent?"#fc8181":cat.color}}>
+        <Icon name={a.urgent?"bell":cat.icon} size={14} sw={1.5}/>
+      </div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+          <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:1.5,textTransform:"uppercase",fontWeight:700,color:a.urgent?"#fc8181":cat.color}}>{a.urgent?"🚨 Urgent":cat.label}</span>
+          <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--muted)",letterSpacing:.5}}>{new Date(a.created_at).toLocaleString("en-ZA",{dateStyle:"medium",timeStyle:"short"})}</span>
+        </div>
+        <div style={{fontSize:14,lineHeight:1.6,color:"#fff"}}>{a.body}</div>
+      </div>
+      {isOrg&&onRemove&&<button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4,alignSelf:"flex-start",flexShrink:0}} onClick={onRemove}><Icon name="trash" size={14}/></button>}
+    </div>
+  );
+}
+
 function HomePage({announcements,onChampClick}){
   const[champions,setChampions]=useState([]);
   const[latestResult,setLatestResult]=useState(null);
+  const[choirResults,setChoirResults]=useState(null);
   const[loading,setLoading]=useState(true);
   const[revealed,setRevealed]=useState({});
+  const[branchPage,setBranchPage]=useState(null);
 
   useEffect(()=>{
     async function load(){
@@ -704,7 +809,7 @@ function HomePage({announcements,onChampClick}){
         const[{data:sc},{data:nc},{data:cc}]=await Promise.all([
           supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition","soccer").eq("published",true),
           supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition","netball").eq("published",true),
-          supabase.from("fc_choir_leaderboard").select("*").eq("event_id",eid),
+          supabase.from("fc_choir_leaderboard").select("*").eq("event_id",eid).order("overall",{ascending:false}),
         ]);
         const champs=[];
         const findChamp=(matches,sport)=>{
@@ -715,9 +820,15 @@ function HomePage({announcements,onChampClick}){
         };
         findChamp(sc,"Soccer");findChamp(nc,"Netball");
         const pf=await supabase.from("fc_publish_flags").select("*").eq("event_id",eid).eq("competition","choir").eq("published",true).maybeSingle();
-        if(pf.data&&cc?.length)champs.push({sport:"Choir",name:cc[0].group_name,score:cc[0].overall?.toFixed(1)});
+        if(pf.data&&cc?.length){
+          champs.push({sport:"Choir",name:cc[0].group_name,score:cc[0].overall?.toFixed(1)});
+          // Top 3 for dedicated choir card — no scores shown
+          setChoirResults({published:true,top3:(cc||[]).slice(0,3).map(g=>g.group_name)});
+        } else if(cc?.length){
+          setChoirResults({published:false,top3:[]});
+        }
         setChampions(champs);
-        // latest result ticker — most recently confirmed published match
+        // latest result ticker
         const allMatches=[...(sc||[]),...(nc||[])].filter(m=>m.winner_id&&m.published);
         if(allMatches.length){
           allMatches.sort((a,b)=>new Date(b.updated_at||0)-new Date(a.updated_at||0));
@@ -784,10 +895,11 @@ function HomePage({announcements,onChampClick}){
   return(
     <div className="pw">
       <style>{`@keyframes fall{0%{transform:translateY(-10px) rotate(0deg);opacity:1;}100%{transform:translateY(350px) rotate(360deg);opacity:0;}}`}</style>
+      {branchPage&&<BranchPage name={branchPage} onBack={()=>setBranchPage(null)}/>}
       <div className="hero">
         <img src={FC_LOGO} className="hero-logo" alt=""/>
         <div className="hero-title fu fu1">Founder's <em>Cup</em></div>
-        <div className="hero-sub fu fu2">Church of the Holy Ghost · Annual Championship</div>
+        <div className="hero-sub fu fu2">Church of the Holy Ghost · Biennial Championship</div>
       </div>
       <PWABanner/>
       <div className="inner">
@@ -805,12 +917,31 @@ function HomePage({announcements,onChampClick}){
         <div className="sechd fu fu1"><span className="secht">The 8 Teams</span></div>
         <div className="tgrid fu fu2">
           {allTeamNames.map((name,i)=>(
-            <div key={name} className="tgi fu" style={{animationDelay:`${.1+i*.04}s`}}>
-              <img src={getLogo(name)} className="tgi-logo" alt={name} onError={e=>e.target.style.opacity=".2"}/>
+            <div key={name} className="tgi fu" style={{animationDelay:`${.1+i*.04}s`,cursor:"pointer"}} onClick={()=>setBranchPage(name)}>
+              <img src={getLogo(name)} className="tgi-logo" alt={name} onError={e=>e.target.style.opacity=".2"} style={{border:"2px solid var(--gold-border)",transition:"border-color .2s"}}/>
               <div className="tgi-name">{name}</div>
             </div>
           ))}
         </div>
+        {/* Choir results card — 1st/2nd/3rd only, no scores */}
+        {choirResults?.published&&choirResults.top3.length>0&&(
+          <div className="fu fu3" style={{background:"linear-gradient(135deg,rgba(240,180,41,.08) 0%,var(--navy3) 100%)",border:"1px solid var(--gold-border)",borderRadius:12,padding:16,marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              <Icon name="choir" size={16} stroke="var(--gold)"/>
+              <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:3,textTransform:"uppercase",color:"var(--gold)",fontWeight:700}}>Choir Results</span>
+            </div>
+            {choirResults.top3.map((name,i)=>(
+              <div key={name} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:i<choirResults.top3.length-1?"1px solid var(--border)":"none"}}>
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:900,color:i===0?"#f0b429":i===1?"#c0c0c0":"#cd7f32",width:28,flexShrink:0}}>{i===0?"🥇":i===1?"🥈":"🥉"}</div>
+                <TL name={name} size={34}/>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700}}>{name}</div>
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:1}}>{i===0?"1st Place":i===1?"2nd Place":"3rd Place"}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         {champions.length>0&&(
           <><div className="gline fu fu3"><span className="gline-t">🏆 Champions</span></div>
           {champions.map((c,i)=><ChampReveal key={c.sport} c={c} i={i}/>)}</>
@@ -818,9 +949,7 @@ function HomePage({announcements,onChampClick}){
         {announcements.slice(0,2).length>0&&(
           <><div className="sechd fu fu4"><span className="secht">Latest News</span></div>
           {announcements.slice(0,2).map((a,i)=>(
-            <div key={a.id} className={`ann fu ${a.urgent?"urg":""}`} style={{animationDelay:`${.2+i*.06}s`}}>
-              <div className="ann-bw"><div className="ann-time">{new Date(a.created_at).toLocaleString("en-ZA",{dateStyle:"medium",timeStyle:"short"})}{a.urgent&&<span className="tag tgr" style={{fontSize:9,padding:"1px 6px"}}>Urgent</span>}</div><div className="ann-body">{a.body}</div></div>
-            </div>
+            <AnnCard key={a.id} a={a}/>
           ))}</>
         )}
         {!loading&&champions.length===0&&announcements.length===0&&(
@@ -1226,7 +1355,22 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
               style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
           </div>
         </div>
-        {!done&&<button className="btn bp" style={{marginTop:4}} onClick={()=>confirmMatch(m)} disabled={saving||m.score_a===null||m.score_b===null}><Icon name="check" size={14}/> Confirm Result</button>}
+        {!done&&(
+          <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
+            {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
+              <button className="btn bg bsm" style={{flex:1}} onClick={async()=>{
+                await supabase.from("fc_matches").update({status:"live"}).eq("id",m.id);
+                onRefresh();showToast("Match is now Live!");
+              }}><span className="live-dot"/>Start</button>
+            )}
+            {m.status==="live"&&(
+              <div style={{flex:1,display:"flex",alignItems:"center",gap:5,padding:"6px 10px",background:"rgba(56,161,105,.1)",border:"1px solid rgba(56,161,105,.25)",borderRadius:8}}>
+                <span className="live-dot"/><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,fontWeight:700,color:"#68d391",letterSpacing:1,textTransform:"uppercase"}}>Live</span>
+              </div>
+            )}
+            <button className="btn bp bsm" style={{flex:2}} onClick={()=>confirmMatch(m)} disabled={saving}><Icon name="check" size={14}/> Confirm Result</button>
+          </div>
+        )}
         {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:4}}>🏆 {m.winner_name} wins</div>}
       </div>
     );
@@ -1402,6 +1546,11 @@ function BracketView({matches,isOrg,published}){
             <div className="brlbl">{rL[r]||`Round ${r}`}</div>
             {visible.filter(m=>m.round===r).map(m=>(
               <div key={m.id} className="mc">
+                {m.status==="live"&&(
+                  <div style={{padding:"4px 10px",background:"rgba(56,161,105,.15)",borderBottom:"1px solid rgba(56,161,105,.25)",display:"flex",alignItems:"center",gap:6}}>
+                    <span className="live-dot"/><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,fontWeight:700,color:"#68d391",letterSpacing:2,textTransform:"uppercase"}}>Live Now</span>
+                  </div>
+                )}
                 {[{name:m.team_a_name,sc:m.score_a,id:m.team_a_id},{name:m.team_b_name||"TBD",sc:m.score_b,id:m.team_b_id}].map((s,i)=>(
                   <div key={i} className={`mt ${m.winner_id===s.id?"win":m.winner_id?"los":""}`}>
                     {s.name&&s.name!=="TBD"&&<TL name={s.name} size={22}/>}
@@ -1503,10 +1652,21 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
     try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
       const nextR=round+1;
-      const{data:existing}=await supabase.from("fc_matches").select("*").eq("event_id",ev.id).eq("competition",sport).eq("round",nextR).is("team_b_id",null).maybeSingle();
-      if(existing){await supabase.from("fc_matches").update({team_b_id:winnerId}).eq("id",existing.id);}
-      else{await supabase.from("fc_matches").insert({event_id:ev.id,competition:sport,round:nextR,team_a_id:winnerId,status:"pending",published:false});}
-      showToast(`${winnerName} advanced to ${nextR===2?"Semi Final":"Final"}!`);
+      const nextLabel=nextR===2?"Semi Final":nextR===3?"Final":"Round "+nextR;
+      // Look for any incomplete next-round match that needs a team slot filled
+      const{data:nextMatches}=await supabase.from("fc_matches").select("*").eq("event_id",ev.id).eq("competition",sport).eq("round",nextR);
+      // Find a slot: prefer match with team_b empty, else team_a empty
+      const slotB=nextMatches?.find(m=>m.team_a_id&&!m.team_b_id);
+      const slotA=nextMatches?.find(m=>!m.team_a_id);
+      if(slotB){
+        await supabase.from("fc_matches").update({team_b_id:winnerId,status:"pending"}).eq("id",slotB.id);
+      } else if(slotA){
+        await supabase.from("fc_matches").update({team_a_id:winnerId,status:"pending"}).eq("id",slotA.id);
+      } else {
+        // No existing slot — create a new match awaiting second team
+        await supabase.from("fc_matches").insert({event_id:ev.id,competition:sport,round:nextR,round_label:nextLabel,team_a_id:winnerId,status:"pending",published:false});
+      }
+      showToast(`${winnerName} advanced to ${nextLabel}!`);
       setAdvanceMatch(null);onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
@@ -1584,9 +1744,22 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
               </div>
             </div>
             {!done&&(
-              <button className="btn bp" style={{marginTop:8,opacity:ready?1:.4}} onClick={()=>confirm(m)} disabled={saving||!ready}>
-                <Icon name="check" size={14}/> {ready?"Confirm Result":"Enter Both Scores"}
-              </button>
+              <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+                {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
+                  <button className="btn bg bsm" style={{flex:1}} onClick={async()=>{
+                    await supabase.from("fc_matches").update({status:"live"}).eq("id",m.id);
+                    onRefresh();showToast("Match is now Live!");
+                  }}><span className="live-dot"/>Start Match</button>
+                )}
+                {m.status==="live"&&(
+                  <div style={{flex:1,display:"flex",alignItems:"center",gap:6,padding:"8px 12px",background:"rgba(56,161,105,.1)",border:"1px solid rgba(56,161,105,.25)",borderRadius:8}}>
+                    <span className="live-dot"/><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:700,color:"#68d391",letterSpacing:1,textTransform:"uppercase"}}>Live Now</span>
+                  </div>
+                )}
+                <button className="btn bp bsm" style={{flex:2,opacity:ready?1:.4}} onClick={()=>confirm(m)} disabled={saving||!ready}>
+                  <Icon name="check" size={14}/>{ready?"Confirm Result":"Enter Both Scores"}
+                </button>
+              </div>
             )}
             {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:6}}>
               {m.round===1?"⚽ "+m.winner_name+" advances to Semi Final":m.round===2?"⚽ "+m.winner_name+" advances to Final":"🏆 "+m.winner_name+" — Soccer Champions"}
@@ -2215,10 +2388,7 @@ function NewsPage({role,announcements,onRefresh,askPin,showToast}){
         )}
         {!announcements.length&&<div className="empty fu"><div className="eti"><Icon name="news" size={38} sw={1}/></div><div className="ett">No announcements yet.</div></div>}
         {announcements.map((a,i)=>(
-          <div key={a.id} className={`ann fu ${a.urgent?"urg":""}`} style={{animationDelay:`${i*.05}s`}}>
-            <div className="ann-bw"><div className="ann-time">{new Date(a.created_at).toLocaleString("en-ZA",{dateStyle:"medium",timeStyle:"short"})}{a.urgent&&<span className="tag tgr" style={{fontSize:9,padding:"1px 6px"}}>🚨 Urgent</span>}</div><div className="ann-body">{a.body}</div></div>
-            {isOrg&&<button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:4,alignSelf:"flex-start"}} onClick={()=>remove(a.id)}><Icon name="trash" size={14}/></button>}
-          </div>
+          <AnnCard key={a.id} a={a} isOrg={isOrg} onRemove={isOrg?()=>remove(a.id):null}/>
         ))}
       </div>
     </div>
