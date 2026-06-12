@@ -186,6 +186,49 @@ const TL=({name,size=48,style={}})=>(
   <img src={getLogo(name)} alt={name||""} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",border:"2px solid rgba(240,180,41,.3)",flexShrink:0,...style}} onError={e=>{e.target.style.opacity=".2";}}/>
 );
 
+// ── LIVE MATCH TIMER HELPERS ──────────────────────────────────────────────────
+function useElapsedSeconds(startedAt,endedAt){
+  const[now,setNow]=useState(Date.now());
+  useEffect(()=>{
+    if(!startedAt||endedAt)return;
+    const iv=setInterval(()=>setNow(Date.now()),1000);
+    return()=>clearInterval(iv);
+  },[startedAt,endedAt]);
+  if(!startedAt)return null;
+  const end=endedAt?new Date(endedAt).getTime():now;
+  return Math.max(0,Math.floor((end-new Date(startedAt).getTime())/1000));
+}
+function fmtClock(totalSec){
+  if(totalSec===null||totalSec===undefined)return"--:--";
+  const m=Math.floor(totalSec/60),s=totalSec%60;
+  return `${m}:${s.toString().padStart(2,"0")}`;
+}
+// Inline live status badge — used in spectator bracket/pool views
+function LiveBadge({m,sport}){
+  const elapsed=useElapsedSeconds(m.started_at,m.ended_at);
+  if(m.status==="live"){
+    const phase=sport==="soccer"?(m.half_time_at?"2nd Half":"1st Half"):"In Progress";
+    return(
+      <div style={{padding:"4px 10px",background:"rgba(56,161,105,.15)",borderBottom:"1px solid rgba(56,161,105,.25)",display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span className="live-dot"/><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,fontWeight:700,color:"#68d391",letterSpacing:2,textTransform:"uppercase"}}>Live · {phase}</span>
+        </div>
+        <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,fontWeight:700,color:"#68d391"}}>{fmtClock(elapsed)}</span>
+      </div>
+    );
+  }
+  if(m.status==="completed"&&m.started_at&&m.ended_at){
+    const dur=Math.floor((new Date(m.ended_at)-new Date(m.started_at))/1000);
+    return(
+      <div style={{padding:"4px 10px",background:"rgba(0,0,0,.15)",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,fontWeight:700,color:"var(--muted)",letterSpacing:2,textTransform:"uppercase"}}>Full Time</span>
+        <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--muted)"}}>{fmtClock(dur)}</span>
+      </div>
+    );
+  }
+  return null;
+}
+
 const Spinner=({size=32})=>(
   <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:32}}>
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -1092,6 +1135,7 @@ function NetballView({matches,isOrg,published}){
                     <div style={{padding:"4px 8px",borderBottom:"1px solid var(--border)",background:"rgba(0,0,0,.15)"}}>
                       <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,letterSpacing:1.5,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,opacity:.8}}>{pool}</span>
                     </div>
+                    <LiveBadge m={m} sport="netball"/>
                     {[{name:m.team_a_name,sc:m.score_a,id:m.team_a_id,win:aWin},{name:m.team_b_name,sc:m.score_b,id:m.team_b_id,win:bWin}].map((s,i)=>(
                       <div key={i} className={`mt ${s.win?"win":done&&!s.win?"los":""}`} style={{padding:"6px 8px"}}>
                         {s.name&&<TL name={s.name} size={18}/>}
@@ -1231,6 +1275,26 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
 
   const getTeamId=name=>teams.find(t=>t.name===name)?.id;
 
+  const startMatch=async(m)=>{
+    await supabase.from("fc_matches").update({status:"live",started_at:new Date().toISOString(),half_time_at:null,ended_at:null}).eq("id",m.id);
+    try{
+      const{data:evArr}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
+      const ev=evArr?.[0];
+      if(ev){
+        const rLabel=m.round_label||`Round ${m.round}`;
+        await supabase.from("fc_announcements").insert({event_id:ev.id,body:`🏐 Match Started — ${rLabel}: ${m.team_a_name} vs ${m.team_b_name}`,urgent:false,posted_by:"System"});
+      }
+    }catch(e){}
+    onRefresh();showToast("Match is now Live!");
+  };
+
+  const updateLiveScore=async(m)=>{
+    const sa=localScores[m.id]?.score_a??m.score_a??0;
+    const sb=localScores[m.id]?.score_b??m.score_b??0;
+    await supabase.from("fc_matches").update({score_a:parseInt(sa)||0,score_b:parseInt(sb)||0,published:true}).eq("id",m.id);
+    showToast("Score updated for spectators!");onRefresh();
+  };
+
   const confirmMatch=async(m)=>{
     const sa=localScores[m.id]?.score_a??m.score_a;
     const sb=localScores[m.id]?.score_b??m.score_b;
@@ -1246,14 +1310,14 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
       const winner=saNum>sbNum?m.team_a_id:m.team_b_id;
       const winnerName=saNum>sbNum?m.team_a_name:m.team_b_name;
       const loserName=saNum>sbNum?m.team_b_name:m.team_a_name;
-      await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",published:true}).eq("id",m.id);
-      showToast(`${winnerName} wins!`);
+      await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",published:true,ended_at:new Date().toISOString()}).eq("id",m.id);
+      showToast(`Full Time — ${winnerName} wins!`);
       try{
         const{data:evArr}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
         const ev=evArr?.[0];
         if(ev){
           const rLabel=m.round_label||`Round ${m.round}`;
-          await supabase.from("fc_announcements").insert({event_id:ev.id,body:`🏐 Result — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`,urgent:false,posted_by:"System"});
+          await supabase.from("fc_announcements").insert({event_id:ev.id,body:`🏐 Full Time — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`,urgent:false,posted_by:"System"});
         }
       }catch(e){}
       onRefresh();
@@ -1261,8 +1325,8 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
     setSaving(false);
   };
 
-  const editMatch=mid=>askPin("Edit Result","Enter organizer PIN to reopen this match.",async()=>{
-    await supabase.from("fc_matches").update({winner_id:null,status:"pending",score_a:null,score_b:null}).eq("id",mid);
+  const editMatch=mid=>askPin("Edit Result","Enter organizer PIN to reopen this match. Score and timer will be reset.",async()=>{
+    await supabase.from("fc_matches").update({winner_id:null,status:"pending",score_a:null,score_b:null,started_at:null,half_time_at:null,ended_at:null}).eq("id",mid);
     showToast("Match reopened — enter new scores.");onRefresh();
   });
 
@@ -1311,17 +1375,23 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
 
   // Single match card — reused across all phases
   const MatchCard=({m,label})=>{
-    const done=!!m.winner_id;
+    const done=m.status==="completed";
+    const live=m.status==="live";
+    const sa=getLocalScore(m.id,"score_a",m.score_a??"");
+    const sb=getLocalScore(m.id,"score_b",m.score_b??"");
+    const ready=sa!==""&&sb!=="";
     return(
-      <div className="card card-sm fu" style={{marginBottom:10,opacity:done?.9:1}}>
+      <div className="card card-sm fu" style={{marginBottom:10,opacity:done?.9:1,padding:0,overflow:"hidden"}}>
+        <LiveBadge m={m} sport="netball"/>
+        <div style={{padding:"10px 12px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <span className="tag tg" style={{fontSize:9}}>{label||m.round_label}</span>
             {m.round<=6&&<span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--muted)"}}>Rd {m.round} · {ROUND_TIMES[m.round]}</span>}
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            {done&&<span className="tag tgn" style={{fontSize:9}}><Icon name="check" size={9}/> Done</span>}
-            {done&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
+            {done&&<span className="tag tgn" style={{fontSize:9}}><Icon name="check" size={9}/> Full Time</span>}
+            {(done||live)&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
             <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:2}} onClick={()=>removeMatch(m.id)}><Icon name="trash" size={13}/></button>
           </div>
         </div>
@@ -1330,9 +1400,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
             <TL name={m.team_a_name} size={36}/>
             <div className="ssn" style={{fontSize:11}}>{m.team_a_name||"TBD"}</div>
             <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
-              value={getLocalScore(m.id,"score_a",m.score_a??"")}
-              onChange={e=>setLocalScore(m.id,"score_a",e.target.value)}
-              disabled={done}
+              value={sa} onChange={e=>setLocalScore(m.id,"score_a",e.target.value)} disabled={done}
               style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
           </div>
           <div className="ssp">VS</div>
@@ -1340,29 +1408,29 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
             <TL name={m.team_b_name} size={36}/>
             <div className="ssn" style={{fontSize:11}}>{m.team_b_name||"TBD"}</div>
             <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
-              value={getLocalScore(m.id,"score_b",m.score_b??"")}
-              onChange={e=>setLocalScore(m.id,"score_b",e.target.value)}
-              disabled={done}
+              value={sb} onChange={e=>setLocalScore(m.id,"score_b",e.target.value)} disabled={done}
               style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
           </div>
         </div>
-        {!done&&(
-          <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
-            {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
-              <button className="btn bg bsm" style={{flex:1}} onClick={async()=>{
-                await supabase.from("fc_matches").update({status:"live"}).eq("id",m.id);
-                onRefresh();showToast("Match is now Live!");
-              }}><span className="live-dot"/>Start</button>
-            )}
-            {m.status==="live"&&(
-              <div style={{flex:1,display:"flex",alignItems:"center",gap:5,padding:"6px 10px",background:"rgba(56,161,105,.1)",border:"1px solid rgba(56,161,105,.25)",borderRadius:8}}>
-                <span className="live-dot"/><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,fontWeight:700,color:"#68d391",letterSpacing:1,textTransform:"uppercase"}}>Live</span>
-              </div>
-            )}
-            <button className="btn bp bsm" style={{flex:2}} onClick={()=>confirmMatch(m)} disabled={saving}><Icon name="check" size={14}/> Confirm Result</button>
+
+        {/* PENDING — Start */}
+        {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
+          <button className="btn bg" style={{marginTop:8}} onClick={()=>startMatch(m)}><span className="live-dot"/>Start Match</button>
+        )}
+
+        {/* LIVE — update score + end match */}
+        {live&&(
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
+            <button className="btn bo bsm" onClick={()=>updateLiveScore(m)}><Icon name="refresh" size={13}/> Update Score</button>
+            <button className="btn bp bsm" style={{opacity:ready?1:.4}} onClick={()=>confirmMatch(m)} disabled={saving||!ready}>
+              <Icon name="check" size={14}/> {ready?"End Match (Full Time)":"Enter Both Scores"}
+            </button>
           </div>
         )}
+
+        {/* COMPLETED */}
         {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:4}}>🏆 {m.winner_name} wins</div>}
+        </div>
       </div>
     );
   };
@@ -1537,11 +1605,7 @@ function BracketView({matches,isOrg,published}){
             <div className="brlbl">{rL[r]||`Round ${r}`}</div>
             {visible.filter(m=>m.round===r).map(m=>(
               <div key={m.id} className="mc">
-                {m.status==="live"&&(
-                  <div style={{padding:"4px 10px",background:"rgba(56,161,105,.15)",borderBottom:"1px solid rgba(56,161,105,.25)",display:"flex",alignItems:"center",gap:6}}>
-                    <span className="live-dot"/><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,fontWeight:700,color:"#68d391",letterSpacing:2,textTransform:"uppercase"}}>Live Now</span>
-                  </div>
-                )}
+                <LiveBadge m={m} sport="soccer"/>
                 {[{name:m.team_a_name,sc:m.score_a,id:m.team_a_id},{name:m.team_b_name||"TBD",sc:m.score_b,id:m.team_b_id}].map((s,i)=>(
                   <div key={i} className={`mt ${m.winner_id===s.id?"win":m.winner_id?"los":""}`}>
                     {s.name&&s.name!=="TBD"&&<TL name={s.name} size={22}/>}
@@ -1551,8 +1615,8 @@ function BracketView({matches,isOrg,published}){
                 ))}
                 <div className="mfoot">
                   {m.winner_id
-                    ?(m.round===1?"⚽ "+m.winner_name+" → Semi Final":m.round===2?"⚽ "+m.winner_name+" → Final":"🏆 "+m.winner_name+" — Champions")
-                    :"Upcoming"
+                    ?(m.round===3?"🏆 "+m.winner_name+" — Champions":(m.advanced?"✓ "+m.winner_name+" advanced":"⚽ "+m.winner_name+" wins"))
+                    :m.status==="live"?"In progress":"Upcoming"
                   }
                 </div>
               </div>
@@ -1596,19 +1660,42 @@ function TeamsView({teams,isOrg,sport,askPin,showToast,onRefresh}){
 
 function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
   const[saving,setSaving]=useState(false);
-  const[advanceMatch,setAdvanceMatch]=useState(null);
-  // Local score state — keyed by match id. Type freely, nothing saves until Confirm is tapped.
+  // Local score state — keyed by match id. Type freely, nothing saves until a button is tapped.
   const[localScores,setLocalScores]=useState({});
   const getLocal=(mid,field,fallback)=>localScores[mid]?.[field]??fallback;
   const setLocal=(mid,field,val)=>setLocalScores(s=>({...s,[mid]:{...s[mid],[field]:val}}));
   const getTeamName=id=>teams.find(t=>t.id===id)?.name;
-  const confirm=async(m)=>{
+
+  const startMatch=async(m)=>{
+    await supabase.from("fc_matches").update({status:"live",started_at:new Date().toISOString(),half_time_at:null,ended_at:null}).eq("id",m.id);
+    try{
+      const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0]}));
+      const rLabel=m.round_label||`Round ${m.round}`;
+      await supabase.from("fc_announcements").insert({event_id:ev.id,body:`⚽ Match Started — ${rLabel}: ${m.team_a_name} vs ${m.team_b_name}`,urgent:false,posted_by:"System"});
+    }catch(e){}
+    onRefresh();showToast("Match is now Live!");
+  };
+
+  const markHalfTime=async(m)=>{
+    await supabase.from("fc_matches").update({half_time_at:new Date().toISOString()}).eq("id",m.id);
+    onRefresh();showToast("Half Time marked.");
+  };
+
+  // Push current score to spectators while match is live — does NOT end the match
+  const updateLiveScore=async(m)=>{
+    const sa=localScores[m.id]?.score_a??m.score_a??0;
+    const sb=localScores[m.id]?.score_b??m.score_b??0;
+    await supabase.from("fc_matches").update({score_a:parseInt(sa)||0,score_b:parseInt(sb)||0,published:true}).eq("id",m.id);
+    showToast("Score updated for spectators!");onRefresh();
+  };
+
+  // End match — full time, requires a winner (draws blocked)
+  const endMatch=async(m)=>{
     const sa=localScores[m.id]?.score_a??m.score_a;
     const sb=localScores[m.id]?.score_b??m.score_b;
     if(sa===null||sa===undefined||sa===""||sb===null||sb===undefined||sb===""){showToast("Enter both scores first.");return;}
     const saNum=parseInt(sa)||0;
     const sbNum=parseInt(sb)||0;
-    // Block draws — a winner is required to advance
     if(saNum===sbNum){
       showToast("It's a draw — a winner is required. Use extra time or penalties to decide.");
       return;
@@ -1618,50 +1705,48 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
       const winner=saNum>sbNum?m.team_a_id:m.team_b_id;
       const winnerName=getTeamName(winner)||"Winner";
       const loserName=getTeamName(winner===m.team_a_id?m.team_b_id:m.team_a_id)||"opponent";
-      // published:true ensures spectator view picks up the result immediately
-      await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",voting_open:true,published:true}).eq("id",m.id);
-      showToast(`${winnerName} wins!`);
+      await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",voting_open:true,published:true,ended_at:new Date().toISOString()}).eq("id",m.id);
+      showToast(`Full Time — ${winnerName} wins!`);
       try{
         const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0]}));
         const rLabel=m.round_label||`Round ${m.round}`;
-        await supabase.from("fc_announcements").insert({event_id:ev.id,body:`⚽ Result — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`,urgent:false,posted_by:"System"});
+        await supabase.from("fc_announcements").insert({event_id:ev.id,body:`⚽ Full Time — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`,urgent:false,posted_by:"System"});
       }catch(e){}
-      setAdvanceMatch({matchId:m.id,winnerId:winner,winnerName,round:m.round});
       onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
   };
-  const editMatch=mid=>askPin("Edit Result","Enter organizer PIN to reopen this match.",async()=>{
-    await supabase.from("fc_matches").update({winner_id:null,status:"pending",score_a:null,score_b:null}).eq("id",mid);
+
+  const editMatch=mid=>askPin("Edit Result","Enter organizer PIN to reopen this match. Score, timer and advancement will be reset.",async()=>{
+    await supabase.from("fc_matches").update({winner_id:null,status:"pending",score_a:null,score_b:null,started_at:null,half_time_at:null,ended_at:null,advanced:false}).eq("id",mid);
     setLocalScores(s=>({...s,[mid]:{score_a:"",score_b:""}}));
     showToast("Match reopened.");onRefresh();
   });
-  const advanceWinner=async()=>{
-    if(!advanceMatch)return;
-    const{winnerId,winnerName,round}=advanceMatch;
+
+  const advanceWinner=async(m)=>{
+    const winnerId=m.winner_id,winnerName=m.winner_name,round=m.round;
     setSaving(true);
     try{
       const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
       const nextR=round+1;
       const nextLabel=nextR===2?"Semi Final":nextR===3?"Final":"Round "+nextR;
-      // Look for any incomplete next-round match that needs a team slot filled
       const{data:nextMatches}=await supabase.from("fc_matches").select("*").eq("event_id",ev.id).eq("competition",sport).eq("round",nextR);
-      // Find a slot: prefer match with team_b empty, else team_a empty
-      const slotB=nextMatches?.find(m=>m.team_a_id&&!m.team_b_id);
-      const slotA=nextMatches?.find(m=>!m.team_a_id);
+      const slotB=nextMatches?.find(nm=>nm.team_a_id&&!nm.team_b_id);
+      const slotA=nextMatches?.find(nm=>!nm.team_a_id);
       if(slotB){
         await supabase.from("fc_matches").update({team_b_id:winnerId,status:"pending"}).eq("id",slotB.id);
       } else if(slotA){
         await supabase.from("fc_matches").update({team_a_id:winnerId,status:"pending"}).eq("id",slotA.id);
       } else {
-        // No existing slot — create a new match awaiting second team
         await supabase.from("fc_matches").insert({event_id:ev.id,competition:sport,round:nextR,round_label:nextLabel,team_a_id:winnerId,status:"pending",published:false});
       }
+      await supabase.from("fc_matches").update({advanced:true}).eq("id",m.id);
       showToast(`${winnerName} advanced to ${nextLabel}!`);
-      setAdvanceMatch(null);onRefresh();
+      onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
   };
+
   const togglePublish=async()=>{
     const{data:ev}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1).then(r=>({data:r.data?.[0],error:r.error}));
     await supabase.from("fc_publish_flags").update({published:!published}).eq("event_id",ev.id).eq("competition",sport);
@@ -1671,29 +1756,27 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
   const inputStyle={width:64,height:56,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:30,fontWeight:700,color:"var(--gold)",padding:"0 6px",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(240,180,41,.4)",borderRadius:8};
   return(
     <div>
-      {advanceMatch&&(
-        <div style={{background:"var(--gold-dim)",border:"1px solid var(--gold-border)",borderRadius:12,padding:16,marginBottom:14}}>
-          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:800,color:"var(--gold)",marginBottom:6}}>🏆 Advance Winner?</div>
-          <div style={{fontSize:14,marginBottom:14,lineHeight:1.5}}><strong>{advanceMatch.winnerName}</strong> won. Advance to the {advanceMatch.round+1===2?"Semi Final":"Final"}?</div>
-          <div style={{display:"flex",gap:8}}><button className="btn bp bsm" onClick={advanceWinner} disabled={saving}>Yes — Advance</button><button className="btn bo bsm" onClick={()=>setAdvanceMatch(null)}>Not yet</button></div>
-        </div>
-      )}
       <div className="brow" style={{marginBottom:16}}>
         <button className={`btn bsm ${published?"bd":"bg"}`} onClick={togglePublish}><Icon name={published?"eyeoff":"publish"} size={13}/>{published?"Unpublish":"Publish"}</button>
       </div>
       {!matches.length&&<div className="empty"><div className="eti"><Icon name="bracket" size={38} sw={1}/></div><div className="ett">Generate a bracket to begin.</div></div>}
       {matches.map((m,i)=>{
-        const done=!!m.winner_id;
+        const done=m.status==="completed";
+        const live=m.status==="live";
         const sa=getLocal(m.id,"score_a",m.score_a??"");
         const sb=getLocal(m.id,"score_b",m.score_b??"");
         const ready=sa!==""&&sb!=="";
+        const canAdvance=done&&m.winner_id&&!m.advanced&&m.round<3;
+        const nextLabel=m.round===1?"Semi Final":m.round===2?"Final":null;
         return(
-          <div key={m.id} className="card card-sm fu" style={{opacity:done?.85:1,marginBottom:12,animationDelay:`${i*.04}s`}}>
+          <div key={m.id} className="card card-sm fu" style={{opacity:done?.85:1,marginBottom:12,animationDelay:`${i*.04}s`,padding:0,overflow:"hidden"}}>
+            <LiveBadge m={m} sport="soccer"/>
+            <div style={{padding:"12px 14px"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
               <span className="tag tg">{m.round_label||`Round ${m.round}`}</span>
               <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                {done&&<span className="tag tgn"><Icon name="check" size={10}/> Done</span>}
-                {done&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
+                {done&&<span className="tag tgn"><Icon name="check" size={10}/> Full Time</span>}
+                {(done||live)&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
                 <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:2}} onClick={()=>removeMatch(m.id)}><Icon name="trash" size={14}/></button>
               </div>
             </div>
@@ -1701,60 +1784,55 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
               <div className="ss">
                 <TL name={m.team_a_name} size={40}/>
                 <div className="ssn">{m.team_a_name||"TBD"}</div>
-                <input
-                  className="fi"
-                  type="number"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  min="0"
-                  max="99"
-                  placeholder="0"
-                  value={sa}
-                  onChange={e=>setLocal(m.id,"score_a",e.target.value)}
-                  disabled={done}
-                  style={inputStyle}
-                />
+                <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
+                  value={sa} onChange={e=>setLocal(m.id,"score_a",e.target.value)} disabled={done} style={inputStyle}/>
               </div>
               <div className="ssp">VS</div>
               <div className="ss">
                 <TL name={m.team_b_name} size={40}/>
                 <div className="ssn">{m.team_b_name||"TBD"}</div>
-                <input
-                  className="fi"
-                  type="number"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  min="0"
-                  max="99"
-                  placeholder="0"
-                  value={sb}
-                  onChange={e=>setLocal(m.id,"score_b",e.target.value)}
-                  disabled={done}
-                  style={inputStyle}
-                />
+                <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
+                  value={sb} onChange={e=>setLocal(m.id,"score_b",e.target.value)} disabled={done} style={inputStyle}/>
               </div>
             </div>
-            {!done&&(
-              <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
-                {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
-                  <button className="btn bg bsm" style={{flex:1}} onClick={async()=>{
-                    await supabase.from("fc_matches").update({status:"live"}).eq("id",m.id);
-                    onRefresh();showToast("Match is now Live!");
-                  }}><span className="live-dot"/>Start Match</button>
-                )}
-                {m.status==="live"&&(
-                  <div style={{flex:1,display:"flex",alignItems:"center",gap:6,padding:"8px 12px",background:"rgba(56,161,105,.1)",border:"1px solid rgba(56,161,105,.25)",borderRadius:8}}>
-                    <span className="live-dot"/><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:700,color:"#68d391",letterSpacing:1,textTransform:"uppercase"}}>Live Now</span>
-                  </div>
-                )}
-                <button className="btn bp bsm" style={{flex:2,opacity:ready?1:.4}} onClick={()=>confirm(m)} disabled={saving||!ready}>
-                  <Icon name="check" size={14}/>{ready?"Confirm Result":"Enter Both Scores"}
+
+            {/* PENDING — Start Match */}
+            {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
+              <button className="btn bg" style={{marginTop:8}} onClick={()=>startMatch(m)}><span className="live-dot"/>Start Match</button>
+            )}
+
+            {/* LIVE — update score, half time, full time */}
+            {live&&(
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
+                <div style={{display:"flex",gap:8}}>
+                  <button className="btn bo bsm" style={{flex:1}} onClick={()=>updateLiveScore(m)}><Icon name="refresh" size={13}/> Update Score</button>
+                  {!m.half_time_at?(
+                    <button className="btn bo bsm" style={{flex:1}} onClick={()=>markHalfTime(m)}>Mark Half Time</button>
+                  ):(
+                    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"var(--muted)",fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>2nd Half</div>
+                  )}
+                </div>
+                <button className="btn bp" style={{opacity:ready?1:.4}} onClick={()=>endMatch(m)} disabled={saving||!ready}>
+                  <Icon name="check" size={14}/> {ready?"End Match (Full Time)":"Enter Both Scores"}
                 </button>
               </div>
             )}
-            {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:6}}>
-              {m.round===1?"⚽ "+m.winner_name+" advances to Semi Final":m.round===2?"⚽ "+m.winner_name+" advances to Final":"🏆 "+m.winner_name+" — Soccer Champions"}
-            </div>}
+
+            {/* COMPLETED — result + persistent advance */}
+            {done&&(
+              <div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:6}}>
+                {m.round===3?"🏆 "+m.winner_name+" — Soccer Champions":m.winner_name+" wins"}
+              </div>
+            )}
+            {canAdvance&&(
+              <button className="btn bp" style={{marginTop:8}} onClick={()=>advanceWinner(m)} disabled={saving}>
+                <Icon name="check" size={14}/> Advance {m.winner_name} to {nextLabel} →
+              </button>
+            )}
+            {done&&m.advanced&&m.round<3&&(
+              <div style={{textAlign:"center",fontSize:11,color:"var(--muted)",marginTop:6,fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>✓ Advanced to {nextLabel}</div>
+            )}
+            </div>
           </div>
         );
       })}
