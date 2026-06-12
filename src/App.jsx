@@ -1260,6 +1260,68 @@ function NetballView({matches,isOrg,published}){
 }
 
 // ── NETBALL SCORES VIEW (admin) ───────────────────────────────────────────────
+// ── NETBALL MATCH CARD (standalone — prevents remount/flicker) ───────────────
+function NetballMatchCard({m,label,getLocalScore,setLocalScore,startMatch,updateLiveScore,confirmMatch,editMatch,removeMatch,saving}){
+  const done=m.status==="completed";
+  const live=m.status==="live";
+  const sa=getLocalScore(m.id,"score_a",m.score_a??"");
+  const sb=getLocalScore(m.id,"score_b",m.score_b??"");
+  const ready=sa!==""&&sb!=="";
+  return(
+    <div className="card card-sm fu" style={{marginBottom:10,opacity:done?.9:1,padding:0,overflow:"hidden"}}>
+      <LiveBadge m={m} sport="netball"/>
+      <div style={{padding:"10px 12px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span className="tag tg" style={{fontSize:9}}>{label||m.round_label}</span>
+          {m.round<=6&&<span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--muted)"}}>Rd {m.round} · {ROUND_TIMES[m.round]}</span>}
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          {done&&<span className="tag tgn" style={{fontSize:9}}><Icon name="check" size={9}/> Full Time</span>}
+          {(done||live)&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
+          <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:2}} onClick={()=>removeMatch(m.id)}><Icon name="trash" size={13}/></button>
+        </div>
+      </div>
+      <div className="svs">
+        <div className="ss">
+          <TL name={m.team_a_name} size={36}/>
+          <div className="ssn" style={{fontSize:11}}>{m.team_a_name||"TBD"}</div>
+          <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
+            value={sa} onChange={e=>setLocalScore(m.id,"score_a",e.target.value)} disabled={done}
+            style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
+        </div>
+        <div className="ssp">VS</div>
+        <div className="ss">
+          <TL name={m.team_b_name} size={36}/>
+          <div className="ssn" style={{fontSize:11}}>{m.team_b_name||"TBD"}</div>
+          <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
+            value={sb} onChange={e=>setLocalScore(m.id,"score_b",e.target.value)} disabled={done}
+            style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
+        </div>
+      </div>
+
+      {/* PENDING — Start */}
+      {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
+        <button className="btn bg" style={{marginTop:8}} onClick={()=>startMatch(m)}><span className="live-dot"/>Start Match</button>
+      )}
+
+      {/* LIVE — update score + end match */}
+      {live&&(
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
+          <button className="btn bo bsm" onClick={()=>updateLiveScore(m)}><Icon name="refresh" size={13}/> Update Score</button>
+          <button className="btn bp bsm" style={{opacity:ready?1:.4}} onClick={()=>confirmMatch(m)} disabled={saving||!ready}>
+            <Icon name="check" size={14}/> {ready?"End Match (Full Time)":"Enter Both Scores"}
+          </button>
+        </div>
+      )}
+
+      {/* COMPLETED */}
+      {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:4}}>{m.winner_name?`🏆 ${m.winner_name} wins`:"🤝 Draw"}</div>}
+      </div>
+    </div>
+  );
+}
+
 function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
   const[saving,setSaving]=useState(false);
   const[phase,setPhase]=useState("pools");
@@ -1381,67 +1443,6 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
   };
 
   // Single match card — reused across all phases
-  const MatchCard=({m,label})=>{
-    const done=m.status==="completed";
-    const live=m.status==="live";
-    const sa=getLocalScore(m.id,"score_a",m.score_a??"");
-    const sb=getLocalScore(m.id,"score_b",m.score_b??"");
-    const ready=sa!==""&&sb!=="";
-    return(
-      <div className="card card-sm fu" style={{marginBottom:10,opacity:done?.9:1,padding:0,overflow:"hidden"}}>
-        <LiveBadge m={m} sport="netball"/>
-        <div style={{padding:"10px 12px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <span className="tag tg" style={{fontSize:9}}>{label||m.round_label}</span>
-            {m.round<=6&&<span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--muted)"}}>Rd {m.round} · {ROUND_TIMES[m.round]}</span>}
-          </div>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            {done&&<span className="tag tgn" style={{fontSize:9}}><Icon name="check" size={9}/> Full Time</span>}
-            {(done||live)&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
-            <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:2}} onClick={()=>removeMatch(m.id)}><Icon name="trash" size={13}/></button>
-          </div>
-        </div>
-        <div className="svs">
-          <div className="ss">
-            <TL name={m.team_a_name} size={36}/>
-            <div className="ssn" style={{fontSize:11}}>{m.team_a_name||"TBD"}</div>
-            <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
-              value={sa} onChange={e=>setLocalScore(m.id,"score_a",e.target.value)} disabled={done}
-              style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
-          </div>
-          <div className="ssp">VS</div>
-          <div className="ss">
-            <TL name={m.team_b_name} size={36}/>
-            <div className="ssn" style={{fontSize:11}}>{m.team_b_name||"TBD"}</div>
-            <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
-              value={sb} onChange={e=>setLocalScore(m.id,"score_b",e.target.value)} disabled={done}
-              style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
-          </div>
-        </div>
-
-        {/* PENDING — Start */}
-        {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
-          <button className="btn bg" style={{marginTop:8}} onClick={()=>startMatch(m)}><span className="live-dot"/>Start Match</button>
-        )}
-
-        {/* LIVE — update score + end match */}
-        {live&&(
-          <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
-            <button className="btn bo bsm" onClick={()=>updateLiveScore(m)}><Icon name="refresh" size={13}/> Update Score</button>
-            <button className="btn bp bsm" style={{opacity:ready?1:.4}} onClick={()=>confirmMatch(m)} disabled={saving||!ready}>
-              <Icon name="check" size={14}/> {ready?"End Match (Full Time)":"Enter Both Scores"}
-            </button>
-          </div>
-        )}
-
-        {/* COMPLETED */}
-        {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:4}}>{m.winner_name?`🏆 ${m.winner_name} wins`:"🤝 Draw"}</div>}
-        </div>
-      </div>
-    );
-  };
-
   const phaseTabs=[
     {id:"pools",lbl:`Pools (${poolMatches.filter(m=>m.winner_id).length}/${poolMatches.length})`},
     {id:"semis",lbl:`Semis (${semiMatches.filter(m=>m.winner_id).length}/${Math.max(semiMatches.length,2)})`},
@@ -1468,7 +1469,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
               <div key={r}>
                 {r===5&&<div style={{textAlign:"center",padding:"6px 0",margin:"6px 0 10px",borderTop:"1px dashed var(--border)",borderBottom:"1px dashed var(--border)"}}><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--muted)",fontWeight:700}}>Lunch 11:35 – 12:35</span></div>}
                 <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:8,marginTop:r>1&&r!==5?10:0}}>Round {r} · {ROUND_TIMES[r]}</div>
-                {rMatches.map(m=><MatchCard key={m.id} m={m} label={m.round_label}/>)}
+                {rMatches.map(m=><NetballMatchCard key={m.id} m={m} label={m.round_label} getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} editMatch={editMatch} removeMatch={removeMatch} saving={saving}/>)}
               </div>
             );
           })}
@@ -1537,7 +1538,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
 
           {!allPoolDone&&semiMatches.length===0&&<div style={{fontSize:13,color:"var(--muted)",textAlign:"center",padding:"16px 0",lineHeight:1.6}}>Complete all pool rounds first before setting up semi-finals.</div>}
 
-          {semiMatches.map(m=><MatchCard key={m.id} m={m} label="Semi Final"/>)}
+          {semiMatches.map(m=><NetballMatchCard key={m.id} m={m} label="Semi Final" getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} editMatch={editMatch} removeMatch={removeMatch} saving={saving}/>)}
 
           {semiMatches.length===2&&semiMatches.every(m=>m.winner_id)&&!finalMatch&&(
             <div style={{background:"var(--gold-dim)",border:"1px solid var(--gold-border)",borderRadius:12,padding:14,marginTop:4,textAlign:"center"}}>
@@ -1564,7 +1565,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
           {!finalMatch&&!(semiMatches.length===2&&semiMatches.every(m=>m.winner_id))&&(
             <div style={{fontSize:13,color:"var(--muted)",textAlign:"center",padding:"16px 0",lineHeight:1.6}}>Complete both semi-finals first.</div>
           )}
-          {finalMatch&&<MatchCard m={finalMatch} label="Final"/>}
+          {finalMatch&&<NetballMatchCard m={finalMatch} label="Final" getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} editMatch={editMatch} removeMatch={removeMatch} saving={saving}/>}
         </div>
       )}
     </div>
