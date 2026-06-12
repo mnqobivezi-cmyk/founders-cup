@@ -205,9 +205,21 @@ function fmtClock(totalSec){
 }
 // Inline live status badge — used in spectator bracket/pool views
 function LiveBadge({m,sport}){
-  const elapsed=useElapsedSeconds(m.started_at,m.ended_at);
+  const isHalftime=m.status==="halftime";
+  // Freeze the clock at half_time_at while paused
+  const elapsed=useElapsedSeconds(m.started_at,isHalftime?m.half_time_at:m.ended_at);
+  if(isHalftime){
+    return(
+      <div style={{padding:"4px 10px",background:"rgba(246,173,85,.15)",borderBottom:"1px solid rgba(246,173,85,.25)",display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{width:7,height:7,borderRadius:"50%",background:"#f6ad55",display:"inline-block"}}/><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,fontWeight:700,color:"#f6ad55",letterSpacing:2,textTransform:"uppercase"}}>⏸ Half Time</span>
+        </div>
+        <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,fontWeight:700,color:"#f6ad55"}}>{fmtClock(elapsed)}</span>
+      </div>
+    );
+  }
   if(m.status==="live"){
-    const phase=sport==="soccer"?(m.half_time_at?"2nd Half":"1st Half"):"In Progress";
+    const phase=m.half_time_at?"2nd Half":"1st Half";
     return(
       <div style={{padding:"4px 10px",background:"rgba(56,161,105,.15)",borderBottom:"1px solid rgba(56,161,105,.25)",display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -341,7 +353,7 @@ body{background:var(--navy);color:#fff;font-family:'Barlow',sans-serif;min-heigh
 .tgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;}
 .tgi{display:flex;flex-direction:column;align-items:center;gap:6px;}
 .tgi-logo{width:54px;height:54px;border-radius:50%;object-fit:cover;border:2px solid var(--border2);}
-.tgi-name{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-align:center;line-height:1.2;}
+.tgi-name{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;text-align:center;line-height:1.25;}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px 16px;border-radius:8px;border:none;font-family:'Barlow',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .18s;width:100%;letter-spacing:.5px;text-transform:uppercase;}
 .btn:active{transform:scale(.97);}
 .bp{background:var(--gold);color:var(--navy);}
@@ -712,7 +724,7 @@ export default function FoundersCup(){
           </div>
         </header>
         <div className="app-body">
-          {tab==="home"   &&<HomePage announcements={announcements} onChampClick={sport=>{if(sport==="soccer")setTab("soccer");else if(sport==="netball")setTab("netball");else if(sport==="choir")setTab("choir");}}/>}
+          {tab==="home"   &&<HomePage announcements={announcements} onChampClick={sport=>{if(sport==="soccer")setTab("soccer");else if(sport==="netball")setTab("netball");else if(sport==="choir")setTab("choir");}} onViewNews={()=>handleTab("news")}/>}
           {tab==="soccer" &&<SportPage sport="soccer"  role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
           {tab==="netball"&&<SportPage sport="netball" role={role} user={user} local={local} askPin={askPin} showToast={showToast}/>}
           {tab==="choir"  &&<ChoirPage role={role} user={user} local={local} setLocal={setLocal} askPin={askPin} showToast={showToast}/>}
@@ -836,7 +848,7 @@ function AnnCard({a,isOrg,onRemove}){
   );
 }
 
-function HomePage({announcements,onChampClick}){
+function HomePage({announcements,onChampClick,onViewNews}){
   const[champions,setChampions]=useState([]);
   const[latestResult,setLatestResult]=useState(null);
   const[choirResults,setChoirResults]=useState(null);
@@ -948,7 +960,6 @@ function HomePage({announcements,onChampClick}){
       </div>
       <PWABanner/>
       <div className="inner">
-        <div className="sechd fu fu1"><span className="secht">The 8 Teams</span></div>
         <div className="tgrid fu fu2">
           {allTeamNames.map((name,i)=>(
             <div key={name} className="tgi fu" style={{animationDelay:`${.1+i*.04}s`,cursor:"pointer"}} onClick={()=>setBranchPage(name)}>
@@ -980,11 +991,16 @@ function HomePage({announcements,onChampClick}){
           <><div className="gline fu fu3"><span className="gline-t">🏆 Champions</span></div>
           {champions.map((c,i)=><ChampReveal key={c.sport} c={c} i={i}/>)}</>
         )}
-        {announcements.slice(0,2).length>0&&(
-          <><div className="sechd fu fu4"><span className="secht">Latest News</span></div>
-          {announcements.slice(0,2).map((a,i)=>(
+        {announcements.slice(0,4).length>0&&(
+          <>
+          <div className="sechd fu fu4"><span className="secht">Latest News</span></div>
+          {announcements.slice(0,4).map((a,i)=>(
             <AnnCard key={a.id} a={a}/>
-          ))}</>
+          ))}
+          <button className="btn bo bsm fu" style={{width:"100%",marginTop:4,marginBottom:8}} onClick={onViewNews}>
+            View all news <Icon name="news" size={13}/>
+          </button>
+          </>
         )}
         {!loading&&champions.length===0&&announcements.length===0&&(
           <div className="empty fu fu3"><div className="eti"><Icon name="signal" size={38} sw={1}/></div><div className="ett">Live results will appear here as the competition progresses.</div></div>
@@ -1033,7 +1049,7 @@ function SportPage({sport,role,user,local,askPin,showToast}){
       const eid=ev.id;
       const[teamsRes,matchesRes,pfRes]=await Promise.all([
         supabase.from("fc_teams").select("*,fc_players(*)").eq("event_id",eid).eq("competition",sport),
-        supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition",sport).order("round",{ascending:true}),
+        supabase.from("fc_matches_view").select("*").eq("event_id",eid).eq("competition",sport).order("round",{ascending:true}).order("round_label",{ascending:true}).order("id",{ascending:true}),
         supabase.from("fc_publish_flags").select("*").eq("event_id",eid).eq("competition",sport),
       ]);
       setTeams(teamsRes.data||[]);
@@ -1118,12 +1134,12 @@ function NetballView({matches,isOrg,published}){
           <div key={r}>
             {r===5&&(
               <div style={{textAlign:"center",padding:"8px 0",margin:"4px 0 10px",borderTop:"1px dashed var(--border)",borderBottom:"1px dashed var(--border)"}}>
-                <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--muted)",fontWeight:700}}>Lunch Break · 11:35 – 12:35</span>
+                <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--muted)",fontWeight:700}}>Lunch Break</span>
               </div>
             )}
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,marginTop:r>1&&r!==5?10:0}}>
               <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700}}>Round {r}</span>
-              <span style={{fontSize:10,color:"var(--muted)",fontFamily:"'Barlow Condensed',sans-serif"}}>{ROUND_TIMES[r]}</span>
+              
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:4}}>
               {["Pool A","Pool B"].map(pool=>{
@@ -1261,24 +1277,27 @@ function NetballView({matches,isOrg,published}){
 
 // ── NETBALL SCORES VIEW (admin) ───────────────────────────────────────────────
 // ── NETBALL MATCH CARD (standalone — prevents remount/flicker) ───────────────
-function NetballMatchCard({m,label,getLocalScore,setLocalScore,startMatch,updateLiveScore,confirmMatch,editMatch,removeMatch,saving}){
+function NetballMatchCard({m,label,getLocalScore,setLocalScore,startMatch,updateLiveScore,confirmMatch,goHalfTime,startSecondHalf,editMatch,removeMatch,saving,confirmEndId,setConfirmEndId}){
   const done=m.status==="completed";
   const live=m.status==="live";
+  const halftime=m.status==="halftime";
+  const editable=live||halftime;
   const sa=getLocalScore(m.id,"score_a",m.score_a??"");
   const sb=getLocalScore(m.id,"score_b",m.score_b??"");
   const ready=sa!==""&&sb!=="";
+  const confirming=confirmEndId===m.id;
   return(
-    <div className="card card-sm fu" style={{marginBottom:10,opacity:done?.9:1,padding:0,overflow:"hidden"}}>
+    <div className="card card-sm fu" style={{marginBottom:10,opacity:done?.9:1,padding:0,overflow:"hidden",background:done?"linear-gradient(135deg,rgba(56,161,105,.06) 0%,var(--navy3) 60%)":undefined,borderColor:done?"rgba(56,161,105,.2)":undefined}}>
       <LiveBadge m={m} sport="netball"/>
       <div style={{padding:"10px 12px"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <span className="tag tg" style={{fontSize:9}}>{label||m.round_label}</span>
-          {m.round<=6&&<span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--muted)"}}>Rd {m.round} · {ROUND_TIMES[m.round]}</span>}
+          {m.round<=6&&<span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,color:"var(--muted)"}}>Rd {m.round}</span>}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           {done&&<span className="tag tgn" style={{fontSize:9}}><Icon name="check" size={9}/> Full Time</span>}
-          {(done||live)&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
+          {(done||editable)&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
           <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:2}} onClick={()=>removeMatch(m.id)}><Icon name="trash" size={13}/></button>
         </div>
       </div>
@@ -1287,31 +1306,60 @@ function NetballMatchCard({m,label,getLocalScore,setLocalScore,startMatch,update
           <TL name={m.team_a_name} size={36}/>
           <div className="ssn" style={{fontSize:11}}>{m.team_a_name||"TBD"}</div>
           <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
-            value={sa} onChange={e=>setLocalScore(m.id,"score_a",e.target.value)} disabled={done}
-            style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
+            value={sa} onChange={e=>setLocalScore(m.id,"score_a",e.target.value)} disabled={!editable}
+            style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)",opacity:editable?1:.4}}/>
         </div>
         <div className="ssp">VS</div>
         <div className="ss">
           <TL name={m.team_b_name} size={36}/>
           <div className="ssn" style={{fontSize:11}}>{m.team_b_name||"TBD"}</div>
           <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
-            value={sb} onChange={e=>setLocalScore(m.id,"score_b",e.target.value)} disabled={done}
-            style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)"}}/>
+            value={sb} onChange={e=>setLocalScore(m.id,"score_b",e.target.value)} disabled={!editable}
+            style={{width:54,height:42,textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:700,color:"var(--gold)",padding:"0 4px",background:"rgba(255,255,255,.08)",border:"1px solid rgba(240,180,41,.4)",opacity:editable?1:.4}}/>
         </div>
       </div>
 
-      {/* PENDING — Start */}
+      {/* PENDING — Start. Inputs locked until tapped. */}
       {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
-        <button className="btn bg" style={{marginTop:8}} onClick={()=>startMatch(m)}><span className="live-dot"/>Start Match</button>
+        <>
+          <div style={{fontSize:10,color:"var(--muted)",textAlign:"center",marginBottom:6,fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>Scores locked until match starts</div>
+          <button className="btn bg" onClick={()=>startMatch(m)}><span className="live-dot"/>Start Match</button>
+        </>
       )}
 
-      {/* LIVE — update score + end match */}
+      {/* LIVE — update score, half time, end match */}
       {live&&(
         <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
+          <div style={{display:"flex",gap:6}}>
+            <button className="btn bo bsm" style={{flex:1}} onClick={()=>updateLiveScore(m)}><Icon name="refresh" size={13}/> Update</button>
+            {!m.half_time_at?(
+              <button className="btn bo bsm" style={{flex:1,borderColor:"rgba(246,173,85,.4)",color:"#f6ad55"}} onClick={()=>goHalfTime(m)}><Icon name="bell" size={13}/> Half Time</button>
+            ):(
+              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#68d391",fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase",fontWeight:700}}>2nd Half</div>
+            )}
+          </div>
+          {!confirming?(
+            <button className="btn bp bsm" style={{opacity:ready?1:.4}} onClick={()=>ready&&setConfirmEndId(m.id)} disabled={saving||!ready}>
+              <Icon name="check" size={14}/> {ready?"End Match (Full Time)":"Enter Both Scores"}
+            </button>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <div style={{fontSize:10,color:"#fc8181",textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase",fontWeight:700}}>Confirm — this ends the match</div>
+              <div style={{display:"flex",gap:6}}>
+                <button className="btn bo bsm" style={{flex:1}} onClick={()=>setConfirmEndId(null)}>Cancel</button>
+                <button className="btn bd bsm" style={{flex:2}} onClick={()=>confirmMatch(m)} disabled={saving}><Icon name="check" size={13}/> Yes, End {sa}–{sb}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* HALF TIME — paused, resume */}
+      {halftime&&(
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
+          <div style={{textAlign:"center",padding:"6px",background:"rgba(246,173,85,.08)",border:"1px solid rgba(246,173,85,.25)",borderRadius:8,fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,fontWeight:700,color:"#f6ad55",letterSpacing:1,textTransform:"uppercase"}}>⏸ Half Time — paused</div>
           <button className="btn bo bsm" onClick={()=>updateLiveScore(m)}><Icon name="refresh" size={13}/> Update Score</button>
-          <button className="btn bp bsm" style={{opacity:ready?1:.4}} onClick={()=>confirmMatch(m)} disabled={saving||!ready}>
-            <Icon name="check" size={14}/> {ready?"End Match (Full Time)":"Enter Both Scores"}
-          </button>
+          <button className="btn bg bsm" onClick={()=>startSecondHalf(m)}><span className="live-dot"/>Start Second Half</button>
         </div>
       )}
 
@@ -1327,6 +1375,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
   const[phase,setPhase]=useState("pools");
   const[semiSetup,setSemiSetup]=useState(false);
   const[localScores,setLocalScores]=useState({});
+  const[confirmEndId,setConfirmEndId]=useState(null);
   const getLocalScore=(mid,field,fallback)=>localScores[mid]?.[field]??fallback;
   const setLocalScore=(mid,field,val)=>setLocalScores(s=>({...s,[mid]:{...s[mid],[field]:val}}));
 
@@ -1352,10 +1401,25 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
     onRefresh();showToast("Match is now Live!");
   };
 
+  // Pause for half time
+  const goHalfTime=async(m)=>{
+    await supabase.from("fc_matches").update({status:"halftime",half_time_at:new Date().toISOString()}).eq("id",m.id);
+    showToast("Half Time — match paused.");onRefresh();
+  };
+  // Resume for second half
+  const startSecondHalf=async(m)=>{
+    await supabase.from("fc_matches").update({status:"live"}).eq("id",m.id);
+    showToast("Second Half started!");onRefresh();
+  };
+
   const updateLiveScore=async(m)=>{
-    const sa=localScores[m.id]?.score_a??m.score_a??0;
-    const sb=localScores[m.id]?.score_b??m.score_b??0;
-    await supabase.from("fc_matches").update({score_a:parseInt(sa)||0,score_b:parseInt(sb)||0,published:true}).eq("id",m.id);
+    const sa=parseInt(localScores[m.id]?.score_a??m.score_a??0)||0;
+    const sb=parseInt(localScores[m.id]?.score_b??m.score_b??0)||0;
+    if(sa===(m.score_a??0)&&sb===(m.score_b??0)){
+      showToast("No score change to update.");
+      return;
+    }
+    await supabase.from("fc_matches").update({score_a:sa,score_b:sb,published:true}).eq("id",m.id);
     showToast("Score updated for spectators!");onRefresh();
   };
 
@@ -1389,6 +1453,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
           await supabase.from("fc_announcements").insert({event_id:ev.id,body:msg,urgent:false,posted_by:"System"});
         }
       }catch(e){}
+      setConfirmEndId(null);
       onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
@@ -1396,6 +1461,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
 
   const editMatch=mid=>askPin("Edit Result","Enter organizer PIN to reopen this match. Score and timer will be reset.",async()=>{
     await supabase.from("fc_matches").update({winner_id:null,status:"pending",score_a:null,score_b:null,started_at:null,half_time_at:null,ended_at:null}).eq("id",mid);
+    setConfirmEndId(null);
     showToast("Match reopened — enter new scores.");onRefresh();
   });
 
@@ -1467,9 +1533,9 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
             if(!rMatches.length)return null;
             return(
               <div key={r}>
-                {r===5&&<div style={{textAlign:"center",padding:"6px 0",margin:"6px 0 10px",borderTop:"1px dashed var(--border)",borderBottom:"1px dashed var(--border)"}}><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--muted)",fontWeight:700}}>Lunch 11:35 – 12:35</span></div>}
-                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:8,marginTop:r>1&&r!==5?10:0}}>Round {r} · {ROUND_TIMES[r]}</div>
-                {rMatches.map(m=><NetballMatchCard key={m.id} m={m} label={m.round_label} getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} editMatch={editMatch} removeMatch={removeMatch} saving={saving}/>)}
+                {r===5&&<div style={{textAlign:"center",padding:"6px 0",margin:"6px 0 10px",borderTop:"1px dashed var(--border)",borderBottom:"1px dashed var(--border)"}}><span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--muted)",fontWeight:700}}>Lunch Break</span></div>}
+                <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,marginBottom:8,marginTop:r>1&&r!==5?10:0}}>Round {r}</div>
+                {rMatches.map(m=><NetballMatchCard key={m.id} m={m} label={m.round_label} getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} goHalfTime={goHalfTime} startSecondHalf={startSecondHalf} editMatch={editMatch} removeMatch={removeMatch} saving={saving} confirmEndId={confirmEndId} setConfirmEndId={setConfirmEndId}/>)}
               </div>
             );
           })}
@@ -1538,7 +1604,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
 
           {!allPoolDone&&semiMatches.length===0&&<div style={{fontSize:13,color:"var(--muted)",textAlign:"center",padding:"16px 0",lineHeight:1.6}}>Complete all pool rounds first before setting up semi-finals.</div>}
 
-          {semiMatches.map(m=><NetballMatchCard key={m.id} m={m} label="Semi Final" getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} editMatch={editMatch} removeMatch={removeMatch} saving={saving}/>)}
+          {semiMatches.map(m=><NetballMatchCard key={m.id} m={m} label="Semi Final" getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} goHalfTime={goHalfTime} startSecondHalf={startSecondHalf} editMatch={editMatch} removeMatch={removeMatch} saving={saving} confirmEndId={confirmEndId} setConfirmEndId={setConfirmEndId}/>)}
 
           {semiMatches.length===2&&semiMatches.every(m=>m.winner_id)&&!finalMatch&&(
             <div style={{background:"var(--gold-dim)",border:"1px solid var(--gold-border)",borderRadius:12,padding:14,marginTop:4,textAlign:"center"}}>
@@ -1565,7 +1631,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
           {!finalMatch&&!(semiMatches.length===2&&semiMatches.every(m=>m.winner_id))&&(
             <div style={{fontSize:13,color:"var(--muted)",textAlign:"center",padding:"16px 0",lineHeight:1.6}}>Complete both semi-finals first.</div>
           )}
-          {finalMatch&&<NetballMatchCard m={finalMatch} label="Final" getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} editMatch={editMatch} removeMatch={removeMatch} saving={saving}/>}
+          {finalMatch&&<NetballMatchCard m={finalMatch} label="Final" getLocalScore={getLocalScore} setLocalScore={setLocalScore} startMatch={startMatch} updateLiveScore={updateLiveScore} confirmMatch={confirmMatch} goHalfTime={goHalfTime} startSecondHalf={startSecondHalf} editMatch={editMatch} removeMatch={removeMatch} saving={saving} confirmEndId={confirmEndId} setConfirmEndId={setConfirmEndId}/>}
         </div>
       )}
     </div>
@@ -1670,6 +1736,7 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
   const[saving,setSaving]=useState(false);
   // Local score state — keyed by match id. Type freely, nothing saves until a button is tapped.
   const[localScores,setLocalScores]=useState({});
+  const[confirmEnd,setConfirmEnd]=useState({});
   const getLocal=(mid,field,fallback)=>localScores[mid]?.[field]??fallback;
   const setLocal=(mid,field,val)=>setLocalScores(s=>({...s,[mid]:{...s[mid],[field]:val}}));
   const getTeamName=id=>teams.find(t=>t.id===id)?.name;
@@ -1684,20 +1751,30 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
     onRefresh();showToast("Match is now Live!");
   };
 
-  const markHalfTime=async(m)=>{
-    await supabase.from("fc_matches").update({half_time_at:new Date().toISOString()}).eq("id",m.id);
-    onRefresh();showToast("Half Time marked.");
+  // Pause for half time
+  const goHalfTime=async(m)=>{
+    await supabase.from("fc_matches").update({status:"halftime",half_time_at:new Date().toISOString()}).eq("id",m.id);
+    showToast("Half Time — match paused.");onRefresh();
+  };
+  // Resume for second half
+  const startSecondHalf=async(m)=>{
+    await supabase.from("fc_matches").update({status:"live"}).eq("id",m.id);
+    showToast("Second Half started!");onRefresh();
   };
 
   // Push current score to spectators while match is live — does NOT end the match
   const updateLiveScore=async(m)=>{
-    const sa=localScores[m.id]?.score_a??m.score_a??0;
-    const sb=localScores[m.id]?.score_b??m.score_b??0;
-    await supabase.from("fc_matches").update({score_a:parseInt(sa)||0,score_b:parseInt(sb)||0,published:true}).eq("id",m.id);
+    const sa=parseInt(localScores[m.id]?.score_a??m.score_a??0)||0;
+    const sb=parseInt(localScores[m.id]?.score_b??m.score_b??0)||0;
+    if(sa===(m.score_a??0)&&sb===(m.score_b??0)){
+      showToast("No score change to update.");
+      return;
+    }
+    await supabase.from("fc_matches").update({score_a:sa,score_b:sb,published:true}).eq("id",m.id);
     showToast("Score updated for spectators!");onRefresh();
   };
 
-  // End match — full time, requires a winner (draws blocked)
+  // End match — full time, requires a winner (draws blocked). Two-tap confirm.
   const endMatch=async(m)=>{
     const sa=localScores[m.id]?.score_a??m.score_a;
     const sb=localScores[m.id]?.score_b??m.score_b;
@@ -1706,6 +1783,10 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
     const sbNum=parseInt(sb)||0;
     if(saNum===sbNum){
       showToast("It's a draw — a winner is required. Use extra time or penalties to decide.");
+      return;
+    }
+    if(!confirmEnd[m.id]){
+      setConfirmEnd(c=>({...c,[m.id]:true}));
       return;
     }
     setSaving(true);
@@ -1720,6 +1801,7 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
         const rLabel=m.round_label||`Round ${m.round}`;
         await supabase.from("fc_announcements").insert({event_id:ev.id,body:`⚽ Full Time — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`,urgent:false,posted_by:"System"});
       }catch(e){}
+      setConfirmEnd(c=>({...c,[m.id]:false}));
       onRefresh();
     }catch(e){showToast("Error: "+e.message);}
     setSaving(false);
@@ -1728,6 +1810,7 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
   const editMatch=mid=>askPin("Edit Result","Enter organizer PIN to reopen this match. Score, timer and advancement will be reset.",async()=>{
     await supabase.from("fc_matches").update({winner_id:null,status:"pending",score_a:null,score_b:null,started_at:null,half_time_at:null,ended_at:null,advanced:false}).eq("id",mid);
     setLocalScores(s=>({...s,[mid]:{score_a:"",score_b:""}}));
+    setConfirmEnd(c=>({...c,[mid]:false}));
     showToast("Match reopened.");onRefresh();
   });
 
@@ -1771,20 +1854,22 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
       {matches.map((m,i)=>{
         const done=m.status==="completed";
         const live=m.status==="live";
+        const halftime=m.status==="halftime";
+        const editable=live||halftime;
         const sa=getLocal(m.id,"score_a",m.score_a??"");
         const sb=getLocal(m.id,"score_b",m.score_b??"");
         const ready=sa!==""&&sb!=="";
         const canAdvance=done&&m.winner_id&&!m.advanced&&m.round<3;
         const nextLabel=m.round===1?"Semi Final":m.round===2?"Final":null;
         return(
-          <div key={m.id} className="card card-sm fu" style={{opacity:done?.85:1,marginBottom:12,animationDelay:`${i*.04}s`,padding:0,overflow:"hidden"}}>
+          <div key={m.id} className="card card-sm fu" style={{opacity:done?.9:1,marginBottom:12,animationDelay:`${i*.04}s`,padding:0,overflow:"hidden",background:done?"linear-gradient(135deg,rgba(56,161,105,.06) 0%,var(--navy3) 60%)":undefined,borderColor:done?"rgba(56,161,105,.2)":undefined}}>
             <LiveBadge m={m} sport="soccer"/>
             <div style={{padding:"12px 14px"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
               <span className="tag tg">{m.round_label||`Round ${m.round}`}</span>
               <div style={{display:"flex",gap:6,alignItems:"center"}}>
                 {done&&<span className="tag tgn"><Icon name="check" size={10}/> Full Time</span>}
-                {(done||live)&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
+                {(done||editable)&&<button style={{background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontFamily:"'Barlow Condensed',sans-serif",fontSize:10,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",padding:2}} onClick={()=>editMatch(m.id)}>Edit</button>}
                 <button style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",padding:2}} onClick={()=>removeMatch(m.id)}><Icon name="trash" size={14}/></button>
               </div>
             </div>
@@ -1793,20 +1878,23 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
                 <TL name={m.team_a_name} size={40}/>
                 <div className="ssn">{m.team_a_name||"TBD"}</div>
                 <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
-                  value={sa} onChange={e=>setLocal(m.id,"score_a",e.target.value)} disabled={done} style={inputStyle}/>
+                  value={sa} onChange={e=>setLocal(m.id,"score_a",e.target.value)} disabled={!editable} style={{...inputStyle,opacity:editable?1:.4}}/>
               </div>
               <div className="ssp">VS</div>
               <div className="ss">
                 <TL name={m.team_b_name} size={40}/>
                 <div className="ssn">{m.team_b_name||"TBD"}</div>
                 <input className="fi" type="number" inputMode="numeric" pattern="[0-9]*" min="0" max="99" placeholder="0"
-                  value={sb} onChange={e=>setLocal(m.id,"score_b",e.target.value)} disabled={done} style={inputStyle}/>
+                  value={sb} onChange={e=>setLocal(m.id,"score_b",e.target.value)} disabled={!editable} style={{...inputStyle,opacity:editable?1:.4}}/>
               </div>
             </div>
 
-            {/* PENDING — Start Match */}
+            {/* PENDING — Start Match. Inputs locked until this is tapped. */}
             {m.status==="pending"&&m.team_a_id&&m.team_b_id&&(
-              <button className="btn bg" style={{marginTop:8}} onClick={()=>startMatch(m)}><span className="live-dot"/>Start Match</button>
+              <>
+                <div style={{fontSize:11,color:"var(--muted)",textAlign:"center",marginBottom:8,fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>Scores locked until match starts</div>
+                <button className="btn bg" onClick={()=>startMatch(m)}><span className="live-dot"/>Start Match</button>
+              </>
             )}
 
             {/* LIVE — update score, half time, full time */}
@@ -1815,14 +1903,33 @@ function ScoresView({sport,teams,matches,published,askPin,showToast,onRefresh}){
                 <div style={{display:"flex",gap:8}}>
                   <button className="btn bo bsm" style={{flex:1}} onClick={()=>updateLiveScore(m)}><Icon name="refresh" size={13}/> Update Score</button>
                   {!m.half_time_at?(
-                    <button className="btn bo bsm" style={{flex:1}} onClick={()=>markHalfTime(m)}>Mark Half Time</button>
+                    <button className="btn bo bsm" style={{flex:1,borderColor:"rgba(246,173,85,.4)",color:"#f6ad55"}} onClick={()=>goHalfTime(m)}><Icon name="bell" size={13}/> Half Time</button>
                   ):(
-                    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"var(--muted)",fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>2nd Half</div>
+                    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#68d391",fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase",fontWeight:700}}>2nd Half</div>
                   )}
                 </div>
-                <button className="btn bp" style={{opacity:ready?1:.4}} onClick={()=>endMatch(m)} disabled={saving||!ready}>
-                  <Icon name="check" size={14}/> {ready?"End Match (Full Time)":"Enter Both Scores"}
-                </button>
+                {!confirmEnd[m.id]?(
+                  <button className="btn bp" style={{opacity:ready?1:.4}} onClick={()=>endMatch(m)} disabled={saving||!ready}>
+                    <Icon name="check" size={14}/> {ready?"End Match (Full Time)":"Enter Both Scores"}
+                  </button>
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{fontSize:11,color:"#fc8181",textAlign:"center",fontFamily:"'Barlow Condensed',sans-serif",letterSpacing:1,textTransform:"uppercase",fontWeight:700}}>Confirm — this ends the match</div>
+                    <div style={{display:"flex",gap:8}}>
+                      <button className="btn bo bsm" style={{flex:1}} onClick={()=>setConfirmEnd(c=>({...c,[m.id]:false}))}>Cancel</button>
+                      <button className="btn bd bsm" style={{flex:2}} onClick={()=>endMatch(m)} disabled={saving}><Icon name="check" size={13}/> Yes, End Match {sa}–{sb}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* HALF TIME — paused, resume for second half */}
+            {halftime&&(
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
+                <div style={{textAlign:"center",padding:"8px",background:"rgba(246,173,85,.08)",border:"1px solid rgba(246,173,85,.25)",borderRadius:8,fontFamily:"'Barlow Condensed',sans-serif",fontSize:12,fontWeight:700,color:"#f6ad55",letterSpacing:1,textTransform:"uppercase"}}>⏸ Half Time — match paused</div>
+                <button className="btn bo bsm" onClick={()=>updateLiveScore(m)}><Icon name="refresh" size={13}/> Update Score</button>
+                <button className="btn bg" onClick={()=>startSecondHalf(m)}><span className="live-dot"/>Start Second Half</button>
               </div>
             )}
 
