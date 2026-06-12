@@ -51,10 +51,10 @@ const POOL_B_TEAMS = ["Cape Town Team","Swacunda Team","Mighty Durban West","Dur
 // ── CONFIRMED DRAW ────────────────────────────────────────────────────────────
 const CONFIRMED_DRAW = {
   soccer: [
-    ["Cape Town Team","Mighty Durban West"],
     ["Zululand Warriors","Durban Central United"],
-    ["Wakanda OT","Durban South Rising Stars"],
-    ["Swacunda Team","Mlungwane FC"],
+    ["Cape Town Team","Swacunda Team"],
+    ["Durban South Rising Stars","Mighty Durban West"],
+    ["Wakanda OT","Mlungwane FC"],
   ],
   netball: [
     ["Zululand Warriors","Durban Central United","Pool A"],
@@ -1129,20 +1129,22 @@ function NetballView({matches,isOrg,published}){
               {["Pool A","Pool B"].map(pool=>{
                 const m=rMatches.find(x=>x.round_label===pool);
                 if(!m)return<div key={pool}/>;
-                const aWin=m.winner_id===m.team_a_id,bWin=m.winner_id===m.team_b_id,done=!!m.winner_id;
+                const aWin=m.winner_id===m.team_a_id,bWin=m.winner_id===m.team_b_id,done=m.status==="completed";
                 return(
                   <div key={pool} className="mc fu" style={{minWidth:0}}>
                     <div style={{padding:"4px 8px",borderBottom:"1px solid var(--border)",background:"rgba(0,0,0,.15)"}}>
                       <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,letterSpacing:1.5,textTransform:"uppercase",color:"var(--gold)",fontWeight:700,opacity:.8}}>{pool}</span>
                     </div>
                     <LiveBadge m={m} sport="netball"/>
-                    {[{name:m.team_a_name,sc:m.score_a,id:m.team_a_id,win:aWin},{name:m.team_b_name,sc:m.score_b,id:m.team_b_id,win:bWin}].map((s,i)=>(
-                      <div key={i} className={`mt ${s.win?"win":done&&!s.win?"los":""}`} style={{padding:"6px 8px"}}>
+                    {[{name:m.team_a_name,sc:m.score_a,id:m.team_a_id,win:aWin},{name:m.team_b_name,sc:m.score_b,id:m.team_b_id,win:bWin}].map((s,i)=>{
+                      const isDraw=done&&!m.winner_id;
+                      return(
+                      <div key={i} className={`mt ${s.win?"win":(done&&!isDraw&&!s.win)?"los":""}`} style={{padding:"6px 8px"}}>
                         {s.name&&<TL name={s.name} size={18}/>}
                         <span className="mtn" style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name||"TBD"}</span>
                         <span className={`msc ${s.sc===null?"dim":""}`} style={{fontSize:15}}>{s.sc??"—"}</span>
                       </div>
-                    ))}
+                    );})}
                   </div>
                 );
               })}
@@ -1301,23 +1303,28 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
     if(sa===null||sa===undefined||sa===""||sb===null||sb===undefined||sb===""){showToast("Enter both scores first.");return;}
     const saNum=parseInt(sa)||0;
     const sbNum=parseInt(sb)||0;
-    if(saNum===sbNum){
+    const isDraw=saNum===sbNum;
+    const isKnockout=m.round>=7; // semis & final must have a winner
+    if(isDraw&&isKnockout){
       showToast("It's a draw — a winner is required. Use extra time or penalties to decide.");
       return;
     }
     setSaving(true);
     try{
-      const winner=saNum>sbNum?m.team_a_id:m.team_b_id;
-      const winnerName=saNum>sbNum?m.team_a_name:m.team_b_name;
-      const loserName=saNum>sbNum?m.team_b_name:m.team_a_name;
+      const winner=isDraw?null:(saNum>sbNum?m.team_a_id:m.team_b_id);
+      const winnerName=isDraw?null:(saNum>sbNum?m.team_a_name:m.team_b_name);
+      const loserName=isDraw?null:(saNum>sbNum?m.team_b_name:m.team_a_name);
       await supabase.from("fc_matches").update({score_a:saNum,score_b:sbNum,winner_id:winner,status:"completed",published:true,ended_at:new Date().toISOString()}).eq("id",m.id);
-      showToast(`Full Time — ${winnerName} wins!`);
+      showToast(isDraw?"Full Time — Draw":`Full Time — ${winnerName} wins!`);
       try{
         const{data:evArr}=await supabase.from("fc_events").select("id").eq("is_active",true).limit(1);
         const ev=evArr?.[0];
         if(ev){
           const rLabel=m.round_label||`Round ${m.round}`;
-          await supabase.from("fc_announcements").insert({event_id:ev.id,body:`🏐 Full Time — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`,urgent:false,posted_by:"System"});
+          const msg=isDraw
+            ?`🏐 Full Time — ${rLabel}: ${m.team_a_name} ${saNum}–${sbNum} ${m.team_b_name} (Draw)`
+            :`🏐 Full Time — ${rLabel}: ${winnerName} ${saNum}–${sbNum} ${loserName}`;
+          await supabase.from("fc_announcements").insert({event_id:ev.id,body:msg,urgent:false,posted_by:"System"});
         }
       }catch(e){}
       onRefresh();
@@ -1429,7 +1436,7 @@ function NetballScoresView({sport,teams,matches,published,askPin,showToast,onRef
         )}
 
         {/* COMPLETED */}
-        {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:4}}>🏆 {m.winner_name} wins</div>}
+        {done&&<div style={{textAlign:"center",color:"var(--gold)",fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,marginTop:4}}>{m.winner_name?`🏆 ${m.winner_name} wins`:"🤝 Draw"}</div>}
         </div>
       </div>
     );
